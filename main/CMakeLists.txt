@@ -4,7 +4,9 @@ idf_component_register(SRCS  "main.c" "helpers/time_set_up.c" "services/request_
 "helpers/fs_operations.c" "services/zlib_compressor.c" "api/requests_quantity/requests_quantity.c" "api/error_handlers/error_handlers.c"
  "helpers/led.c" "services/sys_information.c" "api/sys_info/sys_info.c" "api/led/led.c" "helpers/touch_events_helper.c"
 "web-modules/main-page/main_page.c" "web-modules/main-page/main_page_template.c" "api/performance_testing/performance_testing.c" 
-"web-modules/lib/template_helpers.c" "api/static_files/static_files.c" "api/lib/api_lib.c" "api/image_upload/image_upload.c"
+"web-modules/lib/template_helpers.c" "api/static_files/static_files.c" "api/lib/api_lib.c" "api/image_upload/image_upload.c" 
+"web-modules/temp-preview/temp_preview_page.c" "web-modules/temp-preview/temp_preview_template.c" "web-modules/temp-preview/temp_download_file.c"
+
                     INCLUDE_DIRS ".") 
 
 

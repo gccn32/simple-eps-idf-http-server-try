@@ -1,0 +1,33 @@
+{%
+#include "stdio.h"
+#include "temp_preview_template.h"
+#include "../lib/template_helpers.h"
+
+void get_temp_preview_template(void *t_data, template_callback_context_t *cb_context,
+template_callback_t cb) {
+temp_preview_template_context_t *data = (temp_preview_template_context_t*) t_data;
+%}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Temp preview</title>
+</head>
+
+<body>
+    {% if (data->cur_f_in_list > 0) { %}
+    <ul>
+        {% for (int i = 0; i < data->cur_f_in_list; i++) {
+            temp_preview_template_f_t *file = data->f_list[i]; %}
+            <li><a href="{{file->url | %s}}" target="_blank">{{file->f_name | %s}}</a></li>
+            {% } %}
+    </ul>
+    {% } else { %}
+    <b>No available files</b>
+    {% } %}
+</body>
+
+</html>
+{% } %}

@@ -11,6 +11,8 @@
 #include "helpers/led.h"
 #include "helpers/touch_events_helper.h"
 #include "web-modules/main-page/main_page.h"
+#include "web-modules/temp-preview/temp_preview_page.h"
+#include "web-modules/temp-preview/temp_download_file.h"
 #include "api/performance_testing/performance_testing.h"
 #include "api/lib/api_lib.h"
 #include "api/static_files/static_files.h"
@@ -134,6 +136,16 @@ static void register_http_handlers()
         .method = HTTP_POST,
         .handler = upload_image_handler,
     };
+    const httpd_uri_t preview_temp_api_handler = {
+        .uri = "/temp",
+        .method = HTTP_GET,
+        .handler = get_temp_preview_handler,
+    };
+    const httpd_uri_t preview_temp_download_f_handler = {
+        .uri = "/temp/*",
+        .method = HTTP_GET,
+        .handler = temp_download_f_handler,
+    };
     const httpd_uri_t api_static_files_handled = {
         .uri = "/*",
         .method = HTTP_GET,
@@ -149,8 +161,9 @@ static void register_http_handlers()
     httpd_register_uri_handler(server, &api_toggle_led_handled);
     httpd_register_uri_handler(server, &api_performance_testing_handled);
     httpd_register_uri_handler(server, &api_image_upload_handler);
+    httpd_register_uri_handler(server, &preview_temp_api_handler);
+    httpd_register_uri_handler(server, &preview_temp_download_f_handler);
 
-    httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     httpd_register_uri_handler(server, &api_static_files_handled);
 }
 
@@ -175,7 +188,7 @@ void start_webserver()
     config.recv_wait_timeout = 5;
     config.send_wait_timeout = 5;
     config.uri_match_fn = httpd_uri_match_wildcard;
-    // config.stack_size = 1024 * 16;
+    config.stack_size = 1024 * 32;
     if (httpd_start(&server, &config) == ESP_OK)
     {
         register_http_handlers();

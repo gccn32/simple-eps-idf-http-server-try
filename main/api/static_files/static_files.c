@@ -5,6 +5,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_err.h"
+#include <sys/stat.h>
 #include "../../services/request_counter.h"
 #include "../lib/api_lib.h"
 #include "../error_handlers/error_handlers.h"
@@ -55,17 +56,19 @@ static int get_files_count_recursively(char *folder)
     if (dir)
     {
         struct dirent *en;
-        char file_name[file_name_len];
-        char *path_to_file[path_to_file_len];
+        char path_to_file[path_to_file_len];
 
         while ((en = readdir(dir)) != NULL)
         {
-            strlcpy(file_name, en->d_name, file_name_len);
             snprintf((char *)path_to_file, path_to_file_len, "%s/%.70s", folder, (char *)en->d_name);
-            if (en->d_type == DT_REG)
-                res++;
-            else
-                res += get_files_count_recursively((char *)path_to_file);
+            struct stat st;
+            if (stat((char *)path_to_file, &st) == 0)
+            {
+                if (S_ISREG(st.st_mode))
+                    res++;
+                else
+                    res += get_files_count_recursively((char *)path_to_file);
+            }
         }
         closedir(dir);
     }
@@ -114,21 +117,20 @@ static void generate_cache_from_folder(char *folder, int *cur_handled_file, char
 
             char new_prefix[path_to_file_len];
             if (!*prefix)
-            {
                 stpcpy((char *)new_prefix, file_name);
-            }
             else
-            {
                 snprintf((char *)new_prefix, path_to_file_len, "%s/%.70s", prefix, (char *)en->d_name);
-            }
-            if (en->d_type == DT_REG)
+
+            struct stat st;
+            if (stat(path_to_file, &st) == 0)
             {
-                add_file_to_cache((char *)path_to_file, cur_handled_file, (char *)new_prefix);
-                (*cur_handled_file)++;
-            }
-            else
-            {
-                generate_cache_from_folder((char *)path_to_file, cur_handled_file, (char *)new_prefix);
+                if (S_ISREG(st.st_mode))
+                {
+                    add_file_to_cache((char *)path_to_file, cur_handled_file, (char *)new_prefix);
+                    (*cur_handled_file)++;
+                }
+                else
+                    generate_cache_from_folder((char *)path_to_file, cur_handled_file, (char *)new_prefix);
             }
         }
         closedir(dir);

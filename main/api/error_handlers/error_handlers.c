@@ -17,7 +17,7 @@ esp_err_t http_400_error_handler(httpd_req_t *req, char *message)
     char error_message[error_message_size];
 
     httpd_resp_set_status(req, HTTPD_400);
-    snprintf(error_message, error_message_size - 1, "400 Request is wrong. %s", message);
+    snprintf(error_message, error_message_size - 1, "400 Bad request. %s", message);
     return httpd_resp_send(req, error_message, HTTPD_RESP_USE_STRLEN);
 }
 
