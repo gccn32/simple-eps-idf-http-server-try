@@ -17,7 +17,7 @@
 #include "api/lib/api_lib.h"
 #include "api/static_files/static_files.h"
 #include "api/error_handlers/error_handlers.h"
-#include "api/image_upload/image_upload.h"
+#include "api/files_upload/files_upload.h"
 
 httpd_handle_t server = NULL;
 static const char *TAG = "HTTP-SERVER";
