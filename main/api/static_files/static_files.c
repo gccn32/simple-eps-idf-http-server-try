@@ -87,6 +87,7 @@ static bool should_minify(char *path_to_file)
 static void add_file_to_cache(char *path_to_file, int *cur_handled_file, char *prefix)
 {
     pages_cache[*cur_handled_file].path = strdup(prefix);
+    // ESP_LOGI(TAG, "Path %s", prefix);
     if (should_minify(path_to_file))
     {
         pages_cache[*cur_handled_file].is_compressed = true;
@@ -164,6 +165,8 @@ esp_err_t static_files_api(httpd_req_t *req)
 {
     http_info_request_happen();
     char prefix[100];
+    // ESP_LOGI(TAG, "Static files requested %s", req->uri);
+
     int parsed = sscanf(req->uri, "/%95s", prefix);
     page_cache_entry_t *page_data;
     if (parsed != 1 || (page_data = get_page_data(prefix)) == NULL)

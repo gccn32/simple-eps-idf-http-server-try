@@ -5,11 +5,11 @@ async function runTesting() {
   const instance1 = autocannon(
     {
       title: 'Load testing for simple esp32 server',
-      // url: 'http://192.168.4.1/hello-world',
-      url: 'http://192.168.4.1/hello-world-optimized',
+      url: 'http://192.168.1.200/',
+      // url: 'http://192.168.1.200/hello-world-optimized',
       connections: 7,
       pipelining: 1,
-      amount: 100000,
+      amount: 5000,
       timeout: 60,
     },
     (e, r) => {

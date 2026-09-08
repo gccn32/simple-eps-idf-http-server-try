@@ -20,7 +20,7 @@ cb(cb_context, "</a></li>\r\n            ");
  } 
 cb(cb_context, "\r\n    </ul>\r\n    ");
  } else { 
-cb(cb_context, "\r\n    <b>No file available</b>\r\n    ");
+cb(cb_context, "\r\n    <b>No available files</b>\r\n    ");
  } 
 cb(cb_context, "\r\n</body>\r\n\r\n</html>\r\n");
  } 

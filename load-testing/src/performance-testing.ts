@@ -1,10 +1,10 @@
 import autocannon from 'autocannon';
 
 const start = performance.now();
-const testsQuantityInApi = 1500;
+const testsQuantityInApi = 500;
 async function runTesting() {
 
-  const responseSize = 1024 * 50; // up to 200k
+  const responseSize = 1024 * 100; // up to 200k
   const instance1 = autocannon(
     {
       title: 'Load testing for simple esp32 server',

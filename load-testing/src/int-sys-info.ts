@@ -5,7 +5,7 @@ async function runTesting() {
   const instance = autocannon(
     {
       title: 'Load testing for simple esp32 server',
-      url: 'http://192.168.1.200/int-sys-info',
+      url: 'http://192.168.1.200/api/int-sys-info',
       connections: 7,
       pipelining: 1,
       amount: 10000,

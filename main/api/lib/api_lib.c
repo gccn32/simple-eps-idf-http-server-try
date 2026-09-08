@@ -11,8 +11,10 @@ const char *get_mime_type(const char *filename)
     if (!ext)
         return "text/plain"; // No extension found
 
-    if (strcmp(ext, ".html") == 0 || strcmp(ext, ".htm") == 0 || strcmp(ext, ".txt") == 0)
+    if (strcmp(ext, ".html") == 0 || strcmp(ext, ".htm") == 0)
         return HTTPD_TYPE_TEXT;
+    if (strcmp(ext, ".txt") == 0)
+        return "text/plain";
     if (strcmp(ext, ".css") == 0)
         return "text/css";
     if (strcmp(ext, ".js") == 0)

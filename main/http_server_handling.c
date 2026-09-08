@@ -134,10 +134,10 @@ static void register_http_handlers()
     const httpd_uri_t api_image_upload_handler = {
         .uri = "/api/image-upload",
         .method = HTTP_POST,
-        .handler = upload_image_handler,
+        .handler = upload_file_handler,
     };
     const httpd_uri_t preview_temp_api_handler = {
-        .uri = "/temp",
+        .uri = "/temp/",
         .method = HTTP_GET,
         .handler = get_temp_preview_handler,
     };
@@ -185,10 +185,10 @@ void start_webserver()
     config.open_fn = open_fn; // THIS LINE IS SPEEDING UP esp_http_server RESPONSE FROM 65ms TO 10ms
     config.core_id = 1;       // Improves performance on "Hello world" page from 220/s to 350/s
     config.task_priority = 23;
-    config.recv_wait_timeout = 5;
+    config.recv_wait_timeout = 20;
     config.send_wait_timeout = 5;
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.stack_size = 1024 * 32;
+    // config.stack_size = 1024 * 8;
     if (httpd_start(&server, &config) == ESP_OK)
     {
         register_http_handlers();
