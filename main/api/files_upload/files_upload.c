@@ -95,7 +95,6 @@ esp_err_t upload_file_handler(httpd_req_t *req)
 
     fclose(fd);
     free(buf);
-    remove_file(f_path);
 
     ESP_LOGI(TAG, "Responded successfully");
     return httpd_resp_sendstr(req, "File uploaded successfully!");

@@ -7,7 +7,7 @@
 #include "esp_log.h"
 
 static const int mem_alloc_step = 1024;
-static const char *TAG = "TEMPLATE-HELPERS";
+// static const char *TAG = "TEMPLATE-HELPERS";
 
 static void template_callback(template_callback_context_t *context, char *template_part)
 {

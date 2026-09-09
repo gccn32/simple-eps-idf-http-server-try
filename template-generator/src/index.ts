@@ -1,7 +1,7 @@
 import fs from "fs";
 
 function getHtmlFiles(): string[] {
-    let files = fs.readdirSync('../main', { withFileTypes: true, recursive: true });
+    let files = fs.readdirSync('main', { withFileTypes: true, recursive: true });
     return files.filter(file => file.isFile() && file.name.endsWith('.html')).map(file => file.parentPath + '\\' + file.name);
 }
 
