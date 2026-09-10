@@ -9,16 +9,45 @@
 #include "errno.h"
 #include "../../helpers/fs_operations.h"
 
-#define MAX_UPLOAD_FILE_NAME_LEN 100
+#define MAX_UPLOAD_FILE_NAME_LEN 50
 static const char *TAG = "IMAGE-UPLOAD";
 static char *f_dir_path = "/littlefs/temp";
 
-static char *get_response(int received, char *f_name)
+typedef enum
+{
+    B_HEADER_PARSE_OK,
+    B_HEADER_PARSE_FAIL,
+    B_HEADER_END_NOT_FOUND,
+    B_HEADER_LAST_HEADER,
+    B_HEADER_START_NOT_FOUND,
+    RETRIEVE_DATA_FAIL,
+    RETRIEVE_DATA_OK,
+
+} b_header_parse_status_t;
+
+void replace_all_chars(char *str, char old_char, char new_char)
+{
+    // Loop through the string until the null-terminator is reached
+    for (int i = 0; str[i] != '\0'; i++)
+    {
+        if (str[i] == old_char)
+        {
+            str[i] = new_char;
+        }
+    }
+}
+
+static char *get_response(int post_size, char **f_list, int f_list_len)
 {
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "received", received);
-    cJSON_AddStringToObject(root, "fileName", f_name);
+    cJSON_AddNumberToObject(root, "postSize", post_size);
     cJSON_AddStringToObject(root, "status", "ok");
+    for (int i = 0; i < f_list_len; i++)
+    {
+        ESP_EARLY_LOGI(TAG, "File: \"%s\", file name length: %d", f_list[i], strlen(f_list[i]));
+    }
+    cJSON *json_f_list = cJSON_CreateStringArray((const char *const *)f_list, f_list_len);
+    cJSON_AddItemToObject(root, "files", json_f_list);
     char *res = cJSON_Print(root);
     cJSON_Delete(root);
     return res;
@@ -27,7 +56,7 @@ static char *get_response(int received, char *f_name)
 static void get_file_path(const char *path_to_dir, char *f_name, char *f_path, int f_path_len)
 {
     snprintf(f_path, f_path_len, "%.50s/%.90s", path_to_dir, f_name);
-    int i = 0;
+    uint8_t i = 0;
     while (is_file(f_path))
     {
         i++;
@@ -40,62 +69,268 @@ static void get_file_path(const char *path_to_dir, char *f_name, char *f_path, i
             int name_len = dot - f_name;
             strncpy(name, f_name, name_len);
             name[name_len] = 0;
-            snprintf(f_path, f_path_len, "%.50s/%.90s(%d)%.5s", path_to_dir, name, i, dot);
+            snprintf(f_path, f_path_len, "%.50s/%.50s(%d)%.5s", path_to_dir, name, i, dot);
         }
     }
     ESP_EARLY_LOGI(TAG, "full name %s path %s", f_name, f_path);
 }
 
-static void remove_file(char *f_path)
+// static void remove_file(char *f_path)
+// {
+//     remove(f_dir_path);
+// }
+
+static b_header_parse_status_t parse_boundary_header(char *b_token, int b_token_len, int boundary_num, uint8_t **f_start, int buf_len, char *f_name,
+                                                     uint8_t **prev_f_end)
 {
-    remove(f_dir_path);
+    uint8_t *boundary_start = memmem(*f_start, buf_len, b_token, b_token_len);
+
+    if (boundary_start == NULL)
+        return B_HEADER_START_NOT_FOUND;
+
+    if ((boundary_start + b_token_len)[0] == '-' && (boundary_start + b_token_len)[1] == '-')
+    {
+        *prev_f_end = boundary_start - 2;
+        return B_HEADER_LAST_HEADER;
+    }
+
+    char boundary_header_end[] = "\r\n\r\n";
+    int boundary_header_end_len = 4;
+    uint8_t *boundary_end = memmem(boundary_start, buf_len - (boundary_start - *f_start), boundary_header_end, boundary_header_end_len);
+    if (boundary_end == NULL)
+        return B_HEADER_END_NOT_FOUND;
+
+    char *file_name_attr = "filename=\"";
+    int file_name_attr_len = 10;
+    uint8_t *file_name_attr_start = memmem(boundary_start, boundary_end - boundary_start, file_name_attr, file_name_attr_len);
+    if (file_name_attr_start == NULL)
+        return B_HEADER_PARSE_FAIL;
+
+    uint8_t *file_name_start = file_name_attr_start + file_name_attr_len;
+    uint8_t *file_name_end = memchr(file_name_start, '"', boundary_end - file_name_start);
+    if (file_name_end == NULL || file_name_end - file_name_start > 70)
+        return B_HEADER_PARSE_FAIL;
+
+    int file_name_len = file_name_end - file_name_start;
+    // do not change
+    strncpy(f_name, (char *)file_name_start, file_name_len);
+    f_name[file_name_len] = 0;
+    replace_all_chars(f_name, ' ', '-');
+
+    *f_start = boundary_end + boundary_header_end_len;
+
+    if (boundary_num != 0)
+        *prev_f_end = boundary_start - 2;
+    return B_HEADER_PARSE_OK;
+}
+
+static void add_file_to_list(char *f_name, char ***f_list, int *f_list_len, int *cur_f_in_list)
+{
+    if (*cur_f_in_list >= *f_list_len)
+    {
+        *f_list_len = (*f_list_len / 5 + 1) * 5;
+        char **temp_f_list = realloc(*f_list, *f_list_len * sizeof(char *));
+        *f_list = temp_f_list;
+    }
+    (*f_list)[*cur_f_in_list] = strdup(f_name);
+    ESP_LOGI(TAG, "f_name %s, cur_f_in_list %d, f_list[cur_f_in_list] %s", f_name, *cur_f_in_list, (*f_list)[*cur_f_in_list]);
+
+    (*cur_f_in_list)++;
+}
+
+static char *get_boundary(char *header)
+{
+    char *boundary_left_part = "boundary=";
+    char *res = strstr(header, boundary_left_part);
+    if (res == NULL)
+        return NULL;
+    char *boundary = res + strlen(boundary_left_part);
+    char *payload_boundary = malloc(strlen(boundary) + 3);
+    sprintf(payload_boundary, "--%s", boundary);
+    return payload_boundary;
+}
+
+static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_buf, uint8_t *buf, int buf_len, int *remaining, int *received)
+{
+    int requested_data_len = buf_len - (f_read_buf - buf);
+    int ret = 0;
+    *received = 0;
+    do
+    {
+        ret = httpd_req_recv(req, (char *)f_read_buf + *received, requested_data_len - *received);
+        //  = fread(f_read_buf + *retrieved_for_parsing, 1, requested_data_len, f);
+        if (ret <= 0)
+        {
+            // Check if it was a timeout (retrying is allowed)
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT)
+            {
+                continue;
+            }
+            // Real socket error occurred
+            return RETRIEVE_DATA_FAIL;
+        }
+        *received += ret;
+        *remaining -= ret;
+    } while (*remaining > 0 && *received < requested_data_len);
+    ESP_EARLY_LOGI(TAG, "*retrieved_for_parsing after data received %d, requested data len %d", *received, requested_data_len);
+    return RETRIEVE_DATA_OK;
 }
 
 esp_err_t upload_file_handler(httpd_req_t *req)
 {
-    int f_path_len = 150;
-    char f_path[f_path_len];
-    get_file_path(f_dir_path, "temp-file.txt", f_path, f_path_len);
-    FILE *fd = fopen(f_path, "wb");
+    const int content_len = req->content_len;
+    char *content_type = malloc(200);
+    httpd_req_get_hdr_value_str(req, "Content-Type", content_type, 200);
 
-    int buf_len = 1024 * 16;
-    uint8_t *buf = heap_caps_malloc(buf_len, MALLOC_CAP_SPIRAM);
+    char *b_token = get_boundary(content_type);
+    int b_token_len = strlen(b_token);
 
+    int f_list_len = 10;
+    char **f_list = malloc(f_list_len * sizeof(char *));
+    int cur_f_in_list = 0;
+
+    int prev_f_path_len = 150;
+    char *prev_f_path = malloc(prev_f_path_len);
+
+    char f_name[MAX_UPLOAD_FILE_NAME_LEN];
+    char prev_f_name[MAX_UPLOAD_FILE_NAME_LEN];
+    int cur_boundary = 0;
+
+    // get_file_path(f_dir_path, "temp-file.txt", f_path, f_path_len);
+    // FILE *fd = fopen(f_path, "wb");
+    int max_boundary_len = 250;
+    int buf_len = 1024 * 24;
+    uint8_t *buf = malloc(buf_len + max_boundary_len);
+    uint8_t *f_start = buf;
+    uint8_t *f_read_buf = buf;
+    uint8_t *prev_f_start = NULL;
+    uint8_t *prev_f_end = NULL;
     int remaining = req->content_len;
     int received = 0;
 
-    ESP_LOGI(TAG, "Receiving file, total size: %d bytes", remaining);
+    ESP_LOGI(TAG, "Receiving file, total size: %d bytes, token %s", remaining, b_token);
 
-    int i = 0;
-    while (remaining > 0)
+    bool data_corrupted = false;
+    bool is_last_b = false;
+    bool is_in_file = false;
+    FILE *file = NULL;
+
+    do
     {
-        int bytes_to_read = remaining > buf_len ? buf_len : remaining;
-        received = httpd_req_recv(req, (char *)buf, bytes_to_read);
+        received = 0;
+        b_header_parse_status_t status = retrieve_data(req, f_read_buf, buf, buf_len, &remaining, &received);
+        ESP_LOGI(TAG, "remaining %d received %d, requested data len", remaining, received, buf_len - (f_read_buf - buf));
 
-        if (received <= 0)
+        if (status == RETRIEVE_DATA_FAIL)
+            break;
+
+        do
         {
-            i++;
-            if (received == HTTPD_SOCK_ERR_TIMEOUT)
+            // printf("buf len when parsing %d \n", ret + (f_read_buf - buf) - (f_start - buf));
+            const int parsed_data_len = received + (f_read_buf - buf) - (f_start - buf);
+            b_header_parse_status_t res =
+                parse_boundary_header(b_token, b_token_len, cur_boundary, &f_start, parsed_data_len, f_name, &prev_f_end);
+            ESP_LOGI(TAG, "res %d, parsed_data_len %d f_name %s", res, parsed_data_len, f_name);
+
+            if (res == B_HEADER_END_NOT_FOUND || res == B_HEADER_START_NOT_FOUND)
             {
-                ESP_LOGW(TAG, "Network timeout flag caught, retrying packet fetch...");
-                continue;
+                // char *message = res == B_HEADER_END_NOT_FOUND ? "Boundary header end not found\n" : "Boundary header start not found\n";
+                // printf(message);
+                if (remaining == 0 || cur_boundary == 0)
+                {
+                    data_corrupted = true;
+                    if (file != NULL)
+                    {
+                        // printf("Data is corrupted, removing file %s\n", prev_f_path);
+                        fclose(file);
+                        remove(prev_f_path);
+                    }
+                    break;
+                }
+                else
+                {
+                    prev_f_end = prev_f_start > f_read_buf + received - max_boundary_len ? prev_f_start : f_read_buf + received - max_boundary_len;
+
+                    if (file == NULL)
+                    {
+                        get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
+                        // printf("prev_f_path saving unfinished file %s\n", prev_f_path);
+                        file = fopen(prev_f_path, "wb");
+                        if (file == NULL)
+                            printf("Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
+                    }
+                    fwrite(prev_f_start, 1, prev_f_end - prev_f_start, file);
+
+                    int shift = f_read_buf + received - prev_f_end;
+                    memcpy(buf, prev_f_end, shift);
+                    f_start = buf;
+                    // printf("Shift %d\n", shift);
+                    f_read_buf = buf + shift;
+                    prev_f_start = buf;
+                    is_in_file = true;
+                }
             }
+            else if (res == B_HEADER_PARSE_OK || res == B_HEADER_LAST_HEADER)
+            {
+                if (cur_boundary > 0)
+                {
+                    if (file == NULL)
+                    {
+                        get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
+                        // printf("prev_f_path saving finished file %s\n", prev_f_path);
+                        file = fopen(prev_f_path, "wb");
+                        if (file == NULL)
+                            ESP_LOGI(TAG, "Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
+                    }
+                    fwrite(prev_f_start, 1, prev_f_end - prev_f_start, file);
 
-            ESP_LOGE(TAG, "File reception failed or connection closed abruptly, remaining %d, content length %d, code %d, counter %d",
-                     remaining, req->content_len, received, i);
-            fclose(fd);
-            free(buf);
-            remove_file(f_path);
-            return ESP_FAIL;
-        }
+                    add_file_to_list(prev_f_name, &f_list, &f_list_len, &cur_f_in_list);
 
-        size_t written = fwrite(buf, 1, received, fd);
-        remaining -= received;
+                    fclose(file);
+                    file = NULL;
+                }
+                prev_f_start = f_start;
+                cur_boundary++;
+
+                strncpy(prev_f_name, f_name, MAX_UPLOAD_FILE_NAME_LEN - 1);
+                prev_f_name[MAX_UPLOAD_FILE_NAME_LEN - 1] = 0;
+
+                is_last_b = res == B_HEADER_LAST_HEADER;
+                is_in_file = false;
+            }
+            else if (res == B_HEADER_PARSE_FAIL)
+            {
+                data_corrupted = true;
+                if (file != NULL)
+                {
+                    fclose(file);
+                    remove(prev_f_path);
+                }
+                break;
+            }
+        } while (!is_last_b && !is_in_file && !data_corrupted);
+    } while (remaining > 0 && !data_corrupted && !is_last_b);
+
+    char *response = get_response(content_len, f_list, cur_f_in_list);
+
+    for (int i = 0; i < cur_f_in_list; i++)
+    {
+        ESP_LOGI(TAG, "file %d %s", i, f_list[i]);
+    }
+    for (int i = 0; i < cur_f_in_list; i++)
+    {
+        free(f_list[i]);
     }
 
-    fclose(fd);
     free(buf);
+    free(b_token);
+    free(f_list);
+    free(content_type);
+    free(prev_f_path);
 
     ESP_LOGI(TAG, "Responded successfully");
-    return httpd_resp_sendstr(req, "File uploaded successfully!");
+    // char *response = "ok";
+    esp_err_t res = httpd_resp_sendstr(req, response);
+    free(response);
+    return res;
 }
