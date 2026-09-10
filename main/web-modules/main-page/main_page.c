@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "main_page_template.h"
 #include "../lib/template_helpers.h"
+#include "../../services/request_counter.h"
 
 static const char *TAG = "MAIN-PAGE";
 static uint8_t *main_page_compressed = NULL;
@@ -35,6 +36,7 @@ void initialize_main_page()
 
 esp_err_t get_main_page_handler(httpd_req_t *req)
 {
+    http_info_request_happen();
     httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     return httpd_resp_send(req, (char *)main_page_compressed, main_page_compressed_len);
 }

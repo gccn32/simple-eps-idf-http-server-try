@@ -6,6 +6,7 @@ idf_component_register(SRCS  "main.c" "helpers/time_set_up.c" "services/request_
 "web-modules/main-page/main_page.c" "web-modules/main-page/main_page_template.c" "api/performance_testing/performance_testing.c" 
 "web-modules/lib/template_helpers.c" "api/static_files/static_files.c" "api/lib/api_lib.c" "api/files_upload/files_upload.c" 
 "web-modules/temp-preview/temp_preview_page.c" "web-modules/temp-preview/temp_preview_template.c" "web-modules/temp-preview/temp_download_file.c"
+"web-modules/hello_world/hello_world.c"
 
                     INCLUDE_DIRS ".")
 

@@ -29,7 +29,7 @@ esp_err_t temp_download_f_handler(httpd_req_t *req)
     if (!is_file(f_path))
         return http_404_error_handler(req, HTTPD_404_NOT_FOUND);
 
-    int buf_len = 1024;
+    int buf_len = 1024 * 8;
     uint8_t *buf = malloc(buf_len);
     FILE *f = fopen(f_path, "rb");
     size_t bytes_read = 0;

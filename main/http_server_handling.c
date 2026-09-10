@@ -5,14 +5,15 @@
 #include "lwip/sockets.h"
 #include "services/request_counter.h"
 #include "services/zlib_compressor.h"
+#include "helpers/led.h"
 #include "api/requests_quantity/requests_quantity.h"
 #include "api/sys_info/sys_info.h"
 #include "api/led/led.h"
-#include "helpers/led.h"
 #include "helpers/touch_events_helper.h"
 #include "web-modules/main-page/main_page.h"
 #include "web-modules/temp-preview/temp_preview_page.h"
 #include "web-modules/temp-preview/temp_download_file.h"
+#include "web-modules/hello_world/hello_world.h"
 #include "api/performance_testing/performance_testing.h"
 #include "api/lib/api_lib.h"
 #include "api/static_files/static_files.h"
@@ -21,62 +22,6 @@
 
 httpd_handle_t server = NULL;
 static const char *TAG = "HTTP-SERVER";
-
-static const char *hello_world_message = "<h1>Hello World</h1>"; // 20 symbols
-
-static esp_err_t hello_get_handler(httpd_req_t *req)
-{
-    http_info_request_happen();
-    // httpd_resp_send(req, hello_world_message, HTTPD_RESP_USE_STRLEN);
-    httpd_resp_send(req, hello_world_message, 20);
-    return ESP_OK;
-}
-
-static char *hello_optimized_message = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 20\r\n\r\n<h1>Hello World</h1>";
-
-static esp_err_t hello_optimized_get_handler(httpd_req_t *req)
-{
-    http_info_request_happen();
-    int sockfd = httpd_req_to_sockfd(req);
-    if (sockfd < 0)
-        return ESP_FAIL;
-
-    httpd_send(req, hello_optimized_message, 84);
-    return ESP_OK;
-}
-
-static size_t file_provider(char *buf, size_t max_len, void *ctx)
-{
-    FILE *f = (FILE *)ctx;
-    return fread(buf, 1, max_len, f); // Returns 0 automatically on EOF
-}
-
-static size_t simple_compress_cb(uint8_t *buf, size_t buf_len, void *context)
-{
-    httpd_req_t *req = (httpd_req_t *)context;
-    return httpd_resp_send_chunk(req, (char *)buf, buf_len);
-}
-
-static esp_err_t file_stream_handler(httpd_req_t *req)
-{
-    http_info_request_happen();
-    char *file_path = "/littlefs/static/index.html";
-
-    const char *mime_type = get_mime_type(file_path);
-    httpd_resp_set_type(req, mime_type);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    FILE *f = fopen(file_path, "r");
-    if (!f)
-    {
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-
-    esp_err_t result = send_compressed_stream_cached(file_provider, f, simple_compress_cb, req);
-    httpd_resp_send_chunk(req, NULL, 0);
-    fclose(f);
-    return result;
-}
 
 static esp_err_t open_fn(httpd_handle_t hd, int sockfd)
 {
@@ -93,11 +38,6 @@ static void register_http_handlers()
         .uri = "/",
         .method = HTTP_GET,
         .handler = get_main_page_handler,
-    };
-    const httpd_uri_t file_stream_cached = {
-        .uri = "/compressed-on-the-fly",
-        .method = HTTP_GET,
-        .handler = file_stream_handler,
     };
 
     const httpd_uri_t index_uri_hello_world = {
@@ -153,7 +93,6 @@ static void register_http_handlers()
     };
 
     httpd_register_uri_handler(server, &index_uri);
-    httpd_register_uri_handler(server, &file_stream_cached);
     httpd_register_uri_handler(server, &index_uri_hello_world);
     httpd_register_uri_handler(server, &index_uri_hello_world_optimized);
     httpd_register_uri_handler(server, &get_requests_quantity);
@@ -185,10 +124,11 @@ void start_webserver()
     config.open_fn = open_fn; // THIS LINE IS SPEEDING UP esp_http_server RESPONSE FROM 65ms TO 10ms
     config.core_id = 1;       // Improves performance on "Hello world" page from 220/s to 350/s
     config.task_priority = 23;
-    config.recv_wait_timeout = 60;
+    config.recv_wait_timeout = 60 * 5;
     config.send_wait_timeout = 5;
     config.uri_match_fn = httpd_uri_match_wildcard;
     // config.stack_size = 1024 * 8;
+
     if (httpd_start(&server, &config) == ESP_OK)
     {
         register_http_handlers();

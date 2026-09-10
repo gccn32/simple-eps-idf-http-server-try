@@ -39,7 +39,7 @@ void replace_all_chars(char *str)
     }
 }
 
-static char *get_response(int post_size, char **f_list, int f_list_len)
+static char *get_response(int post_size, char **f_list, int f_list_len, bool data_corrupted)
 {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "postSize", post_size);
@@ -49,6 +49,7 @@ static char *get_response(int post_size, char **f_list, int f_list_len)
 
     cJSON *json_f_list = cJSON_CreateStringArray((const char *const *)f_list, f_list_len);
     cJSON_AddItemToObject(root, "files", json_f_list);
+    cJSON_AddBoolToObject(root, "dataCorrupted", data_corrupted);
     char *res = cJSON_Print(root);
     cJSON_Delete(root);
     return res;
@@ -329,7 +330,7 @@ esp_err_t upload_file_handler(httpd_req_t *req)
         } while (!is_last_b && !is_in_file && !data_corrupted);
     } while (remaining > 0 && !data_corrupted && !is_last_b);
 
-    char *response = get_response(content_len, f_list, cur_f_in_list);
+    char *response = get_response(content_len, f_list, cur_f_in_list, data_corrupted);
 
     for (int i = 0; i < cur_f_in_list; i++)
         free(f_list[i]);
