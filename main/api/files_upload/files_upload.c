@@ -12,7 +12,7 @@
 #define MAX_UPLOAD_FILE_NAME_LEN 50
 static const char *TAG = "IMAGE-UPLOAD";
 static char *f_dir_path = "/littlefs/temp";
-
+static int max_payload_size = 1024 * 1024 * 100;
 typedef enum
 {
     B_HEADER_PARSE_OK,
@@ -25,9 +25,11 @@ typedef enum
 
 } b_header_parse_status_t;
 
-void replace_all_chars(char *str, char old_char, char new_char)
+void replace_all_chars(char *str)
 {
-    // Loop through the string until the null-terminator is reached
+    char old_char = ' ';
+    char new_char = '-';
+
     for (int i = 0; str[i] != '\0'; i++)
     {
         if (str[i] == old_char)
@@ -43,9 +45,8 @@ static char *get_response(int post_size, char **f_list, int f_list_len)
     cJSON_AddNumberToObject(root, "postSize", post_size);
     cJSON_AddStringToObject(root, "status", "ok");
     for (int i = 0; i < f_list_len; i++)
-    {
         ESP_EARLY_LOGI(TAG, "File: \"%s\", file name length: %d", f_list[i], strlen(f_list[i]));
-    }
+
     cJSON *json_f_list = cJSON_CreateStringArray((const char *const *)f_list, f_list_len);
     cJSON_AddItemToObject(root, "files", json_f_list);
     char *res = cJSON_Print(root);
@@ -112,10 +113,15 @@ static b_header_parse_status_t parse_boundary_header(char *b_token, int b_token_
         return B_HEADER_PARSE_FAIL;
 
     int file_name_len = file_name_end - file_name_start;
+    if (file_name_len >= MAX_UPLOAD_FILE_NAME_LEN - 1)
+    {
+        int file_name_len = MAX_UPLOAD_FILE_NAME_LEN - 1;
+        file_name_start = file_name_end - file_name_len;
+    }
     // do not change
     strncpy(f_name, (char *)file_name_start, file_name_len);
     f_name[file_name_len] = 0;
-    replace_all_chars(f_name, ' ', '-');
+    replace_all_chars(f_name);
 
     *f_start = boundary_end + boundary_header_end_len;
 
@@ -133,7 +139,7 @@ static void add_file_to_list(char *f_name, char ***f_list, int *f_list_len, int 
         *f_list = temp_f_list;
     }
     (*f_list)[*cur_f_in_list] = strdup(f_name);
-    ESP_LOGI(TAG, "f_name %s, cur_f_in_list %d, f_list[cur_f_in_list] %s", f_name, *cur_f_in_list, (*f_list)[*cur_f_in_list]);
+    // ESP_LOGI(TAG, "f_name %s, cur_f_in_list %d, f_list[cur_f_in_list] %s", f_name, *cur_f_in_list, (*f_list)[*cur_f_in_list]);
 
     (*cur_f_in_list)++;
 }
@@ -172,21 +178,30 @@ static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_b
         *received += ret;
         *remaining -= ret;
     } while (*remaining > 0 && *received < requested_data_len);
-    ESP_EARLY_LOGI(TAG, "*retrieved_for_parsing after data received %d, requested data len %d", *received, requested_data_len);
+    // ESP_EARLY_LOGI(TAG, "*retrieved_for_parsing after data received %d, requested data len %d", *received, requested_data_len);
     return RETRIEVE_DATA_OK;
 }
 
 esp_err_t upload_file_handler(httpd_req_t *req)
 {
+    http_info_request_happen();
+    if (req->content_len <= 0)
+        return http_400_error_handler(req, "Content-Length is not provided in request");
     const int content_len = req->content_len;
+    if (req->content_len > max_payload_size)
+        return http_413_error_handler(req, max_payload_size, req->content_len);
+
     char *content_type = malloc(200);
-    httpd_req_get_hdr_value_str(req, "Content-Type", content_type, 200);
+    if (httpd_req_get_hdr_value_str(req, "Content-Type", content_type, 200) != ESP_OK)
+        return http_400_error_handler(req, "Content-Type is not provided in request");
 
     char *b_token = get_boundary(content_type);
+    if (b_token == NULL)
+        return http_400_error_handler(req, "Boundary is not provided in request");
     int b_token_len = strlen(b_token);
 
-    int f_list_len = 10;
-    char **f_list = malloc(f_list_len * sizeof(char *));
+    int f_list_len = 0;
+    char **f_list = NULL;
     int cur_f_in_list = 0;
 
     int prev_f_path_len = 150;
@@ -201,6 +216,7 @@ esp_err_t upload_file_handler(httpd_req_t *req)
     int max_boundary_len = 250;
     int buf_len = 1024 * 24;
     uint8_t *buf = malloc(buf_len + max_boundary_len);
+
     uint8_t *f_start = buf;
     uint8_t *f_read_buf = buf;
     uint8_t *prev_f_start = NULL;
@@ -219,29 +235,34 @@ esp_err_t upload_file_handler(httpd_req_t *req)
     {
         received = 0;
         b_header_parse_status_t status = retrieve_data(req, f_read_buf, buf, buf_len, &remaining, &received);
-        ESP_LOGI(TAG, "remaining %d received %d, requested data len", remaining, received, buf_len - (f_read_buf - buf));
+        // ESP_LOGI(TAG, "remaining %d received %d, requested data len", remaining, received, buf_len - (f_read_buf - buf));
 
         if (status == RETRIEVE_DATA_FAIL)
+        {
+            ESP_EARLY_LOGI(TAG, "Fail to retrieve data");
+            if (file != NULL)
+            {
+                ESP_EARLY_LOGI(TAG, "Removing file %s", prev_f_path);
+                fclose(file);
+                remove(prev_f_path);
+            }
             break;
+        }
 
         do
         {
-            // printf("buf len when parsing %d \n", ret + (f_read_buf - buf) - (f_start - buf));
             const int parsed_data_len = received + (f_read_buf - buf) - (f_start - buf);
             b_header_parse_status_t res =
                 parse_boundary_header(b_token, b_token_len, cur_boundary, &f_start, parsed_data_len, f_name, &prev_f_end);
-            ESP_LOGI(TAG, "res %d, parsed_data_len %d f_name %s", res, parsed_data_len, f_name);
+            // ESP_LOGI(TAG, "res %d, parsed_data_len %d f_name %s", res, parsed_data_len, f_name);
 
             if (res == B_HEADER_END_NOT_FOUND || res == B_HEADER_START_NOT_FOUND)
             {
-                // char *message = res == B_HEADER_END_NOT_FOUND ? "Boundary header end not found\n" : "Boundary header start not found\n";
-                // printf(message);
                 if (remaining == 0 || cur_boundary == 0)
                 {
                     data_corrupted = true;
                     if (file != NULL)
                     {
-                        // printf("Data is corrupted, removing file %s\n", prev_f_path);
                         fclose(file);
                         remove(prev_f_path);
                     }
@@ -254,7 +275,6 @@ esp_err_t upload_file_handler(httpd_req_t *req)
                     if (file == NULL)
                     {
                         get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
-                        // printf("prev_f_path saving unfinished file %s\n", prev_f_path);
                         file = fopen(prev_f_path, "wb");
                         if (file == NULL)
                             printf("Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
@@ -264,7 +284,6 @@ esp_err_t upload_file_handler(httpd_req_t *req)
                     int shift = f_read_buf + received - prev_f_end;
                     memcpy(buf, prev_f_end, shift);
                     f_start = buf;
-                    // printf("Shift %d\n", shift);
                     f_read_buf = buf + shift;
                     prev_f_start = buf;
                     is_in_file = true;
@@ -277,7 +296,6 @@ esp_err_t upload_file_handler(httpd_req_t *req)
                     if (file == NULL)
                     {
                         get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
-                        // printf("prev_f_path saving finished file %s\n", prev_f_path);
                         file = fopen(prev_f_path, "wb");
                         if (file == NULL)
                             ESP_LOGI(TAG, "Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
@@ -314,13 +332,7 @@ esp_err_t upload_file_handler(httpd_req_t *req)
     char *response = get_response(content_len, f_list, cur_f_in_list);
 
     for (int i = 0; i < cur_f_in_list; i++)
-    {
-        ESP_LOGI(TAG, "file %d %s", i, f_list[i]);
-    }
-    for (int i = 0; i < cur_f_in_list; i++)
-    {
         free(f_list[i]);
-    }
 
     free(buf);
     free(b_token);
@@ -329,7 +341,8 @@ esp_err_t upload_file_handler(httpd_req_t *req)
     free(prev_f_path);
 
     ESP_LOGI(TAG, "Responded successfully");
-    // char *response = "ok";
+    httpd_resp_set_type(req, HTTPD_TYPE_JSON);
+
     esp_err_t res = httpd_resp_sendstr(req, response);
     free(response);
     return res;
