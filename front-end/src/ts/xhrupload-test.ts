@@ -7,7 +7,7 @@ const abortButton = <HTMLButtonElement>document.getElementById('abort')!;
 
 fileInput.addEventListener('change', () => {
   const xhr = new XMLHttpRequest();
-  xhr.timeout = 60 * 1000;
+  xhr.timeout = 5 * 60 * 1000;
 
   // Link abort button
   abortButton.addEventListener('click', () => xhr.abort(), { once: true });
@@ -24,6 +24,7 @@ fileInput.addEventListener('change', () => {
   // Each time a progress event is received, we update the bar
   xhr.upload.addEventListener('progress', (event) => {
     progressBar.value = event.loaded;
+    progressBar.max = event.total;
     log.textContent = `Uploading (${((event.loaded / event.total) * 100).toFixed(2)}%)…`;
   });
 
@@ -54,7 +55,7 @@ fileInput.addEventListener('change', () => {
   }
   // Theoretically, event listeners could be set after the open() call
   // but browsers are buggy here
-  xhr.open('POST', '/api/image-upload', true);
+  xhr.open('POST', '/api/file-upload', true);
 
   // Note that the event listener must be set before sending (as it is a preflighted request)
   xhr.send(fileData);

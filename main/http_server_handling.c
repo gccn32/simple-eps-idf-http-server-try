@@ -71,10 +71,10 @@ static void register_http_handlers()
         .method = HTTP_GET,
         .handler = performance_testing_api,
     };
-    const httpd_uri_t api_image_upload_handler = {
-        .uri = "/api/image-upload",
+    const httpd_uri_t api_upload_files_handler = {
+        .uri = "/api/file-upload",
         .method = HTTP_POST,
-        .handler = upload_file_handler,
+        .handler = file_upload_async,
     };
     const httpd_uri_t preview_temp_api_handler = {
         .uri = "/temp/",
@@ -99,7 +99,7 @@ static void register_http_handlers()
     httpd_register_uri_handler(server, &get_int_sys_info);
     httpd_register_uri_handler(server, &api_toggle_led_handled);
     httpd_register_uri_handler(server, &api_performance_testing_handled);
-    httpd_register_uri_handler(server, &api_image_upload_handler);
+    httpd_register_uri_handler(server, &api_upload_files_handler);
     httpd_register_uri_handler(server, &preview_temp_api_handler);
     httpd_register_uri_handler(server, &preview_temp_download_f_handler);
 

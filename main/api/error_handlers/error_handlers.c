@@ -26,3 +26,15 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
     httpd_resp_set_status(req, HTTPD_404);
     return httpd_resp_send(req, "Error happen, please check URL", HTTPD_RESP_USE_STRLEN);
 }
+
+esp_err_t http_500_error_handler(httpd_req_t *req, char *message)
+{
+    httpd_resp_set_status(req, HTTPD_500);
+    return httpd_resp_send(req, "Error happen, please check URL", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t http_429_error_handler(httpd_req_t *req, char *message)
+{
+    httpd_resp_set_status(req, "429 Too Many Requests");
+    return httpd_resp_send(req, message, HTTPD_RESP_USE_STRLEN);
+}

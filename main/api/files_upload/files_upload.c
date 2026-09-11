@@ -15,6 +15,7 @@
 static const char *TAG = "IMAGE-UPLOAD";
 static char *f_dir_path = "/littlefs/temp";
 static int max_payload_size = 1024 * 1024 * 100;
+static SemaphoreHandle_t async_upload_f_sem = NULL;
 
 typedef enum
 {
@@ -28,7 +29,7 @@ typedef enum
 
 } b_header_parse_status_t;
 
-void replace_all_chars(char *str)
+static void replace_all_chars(char *str)
 {
     char old_char = ' ';
     char new_char = '-';
@@ -79,11 +80,6 @@ static void get_file_path(const char *path_to_dir, char *f_name, char *f_path, i
     }
     ESP_EARLY_LOGI(TAG, "full name %s path %s", f_name, f_path);
 }
-
-// static void remove_file(char *f_path)
-// {
-//     remove(f_dir_path);
-// }
 
 static b_header_parse_status_t parse_boundary_header(char *b_token, int b_token_len, int boundary_num, uint8_t **f_start, int buf_len, char *f_name,
                                                      uint8_t **prev_f_end)
@@ -158,9 +154,6 @@ static char *get_boundary(char *header)
     boundary[0] = '-';
     boundary[1] = '-';
     return boundary;
-    // char *payload_boundary = malloc(strlen(boundary) + 3);
-    // sprintf(payload_boundary, "--%s", boundary);
-    // return payload_boundary;
 }
 
 static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_buf, uint8_t *buf, int buf_len, int *remaining, int *received)
@@ -188,23 +181,44 @@ static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_b
     // ESP_EARLY_LOGI(TAG, "*retrieved_for_parsing after data received %d, requested data len %d", *received, requested_data_len);
     return RETRIEVE_DATA_OK;
 }
-
-esp_err_t upload_file_handler(httpd_req_t *req)
+static void finish_task(httpd_req_t *req)
 {
+    httpd_req_async_handler_complete(req);
+    xSemaphoreGive(async_upload_f_sem);
+    vTaskDelete(NULL);
+}
+
+static void upload_file_handler(void *arg)
+{
+    httpd_req_t *req = (httpd_req_t *)arg;
     http_info_request_happen();
     if (req->content_len <= 0)
-        return http_400_error_handler(req, "Content-Length is not provided in request");
+    {
+        http_400_error_handler(req, "Content-Length is not provided in request");
+        finish_task(req);
+    }
     const int content_len = req->content_len;
     if (req->content_len > max_payload_size)
-        return http_413_error_handler(req, max_payload_size, req->content_len);
+    {
+        http_413_error_handler(req, max_payload_size, req->content_len);
+        finish_task(req);
+    }
 
     char *content_type = malloc(201);
     if (httpd_req_get_hdr_value_str(req, "Content-Type", content_type, 200) != ESP_OK)
-        return http_400_error_handler(req, "Content-Type is not provided in request");
+    {
+        free(content_type);
+        http_400_error_handler(req, "Content-Type is not provided in request");
+        finish_task(req);
+    }
 
     char *b_token = get_boundary(content_type);
     if (b_token == NULL)
-        return http_400_error_handler(req, "Boundary is not provided in request");
+    {
+        http_400_error_handler(req, "Boundary is not provided in request");
+        finish_task(req);
+    }
+
     int b_token_len = strlen(b_token);
 
     int f_list_len = 0;
@@ -218,10 +232,8 @@ esp_err_t upload_file_handler(httpd_req_t *req)
     char prev_f_name[MAX_UPLOAD_FILE_NAME_LEN];
     int cur_boundary = 0;
 
-    // get_file_path(f_dir_path, "temp-file.txt", f_path, f_path_len);
-    // FILE *fd = fopen(f_path, "wb");
     int max_boundary_len = 250;
-    int buf_len = 1024 * 24;
+    int buf_len = 1024 * 32;
     uint8_t *buf = malloc(buf_len + max_boundary_len);
 
     uint8_t *f_start = buf;
@@ -349,7 +361,49 @@ esp_err_t upload_file_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "Responded successfully");
     httpd_resp_set_type(req, HTTPD_TYPE_JSON);
 
-    esp_err_t res = httpd_resp_sendstr(req, response);
+    httpd_resp_sendstr(req, response);
     free(response);
-    return res;
+
+    finish_task(req);
+}
+
+esp_err_t file_upload_async(httpd_req_t *req)
+{
+
+    if (async_upload_f_sem == NULL)
+    {
+        async_upload_f_sem = xSemaphoreCreateBinary();
+        xSemaphoreGive(async_upload_f_sem);
+    }
+
+    if (xSemaphoreTake(async_upload_f_sem, 0) != pdTRUE)
+    {
+        ESP_LOGW(TAG, "Async handler busy! Rejecting new request.");
+
+        http_429_error_handler(req, "Server is busy processing another request.");
+        return ESP_OK;
+    }
+
+    httpd_req_t *async_req = NULL;
+
+    esp_err_t err = httpd_req_async_handler_begin(req, &async_req);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to initiate async handler");
+        http_500_error_handler(req, "Error happen during async file upload handling");
+        xSemaphoreGive(async_upload_f_sem);
+        return err;
+    }
+
+    BaseType_t ret = xTaskCreatePinnedToCore(upload_file_handler, "async_file_upload", 4 * 1024, async_req, 5, NULL, 1);
+    if (ret != pdPASS)
+    {
+        ESP_LOGE(TAG, "Failed to create worker task");
+        httpd_req_async_handler_complete(async_req);
+        http_500_error_handler(req, "Error happen during async file upload handling");
+        xSemaphoreGive(async_upload_f_sem);
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 }
