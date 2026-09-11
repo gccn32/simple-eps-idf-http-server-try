@@ -2,17 +2,20 @@
 #include "esp_http_server.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#include "../error_handlers/error_handlers.h"
-#include "../../services/request_counter.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "string.h"
 #include "sys/stat.h"
 #include "errno.h"
+#include "../error_handlers/error_handlers.h"
+#include "../../services/request_counter.h"
 #include "../../helpers/fs_operations.h"
 
 #define MAX_UPLOAD_FILE_NAME_LEN 50
 static const char *TAG = "IMAGE-UPLOAD";
 static char *f_dir_path = "/littlefs/temp";
 static int max_payload_size = 1024 * 1024 * 100;
+
 typedef enum
 {
     B_HEADER_PARSE_OK,
@@ -151,10 +154,13 @@ static char *get_boundary(char *header)
     char *res = strstr(header, boundary_left_part);
     if (res == NULL)
         return NULL;
-    char *boundary = res + strlen(boundary_left_part);
-    char *payload_boundary = malloc(strlen(boundary) + 3);
-    sprintf(payload_boundary, "--%s", boundary);
-    return payload_boundary;
+    char *boundary = res + strlen(boundary_left_part) - 2;
+    boundary[0] = '-';
+    boundary[1] = '-';
+    return boundary;
+    // char *payload_boundary = malloc(strlen(boundary) + 3);
+    // sprintf(payload_boundary, "--%s", boundary);
+    // return payload_boundary;
 }
 
 static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_buf, uint8_t *buf, int buf_len, int *remaining, int *received)
@@ -192,7 +198,7 @@ esp_err_t upload_file_handler(httpd_req_t *req)
     if (req->content_len > max_payload_size)
         return http_413_error_handler(req, max_payload_size, req->content_len);
 
-    char *content_type = malloc(200);
+    char *content_type = malloc(201);
     if (httpd_req_get_hdr_value_str(req, "Content-Type", content_type, 200) != ESP_OK)
         return http_400_error_handler(req, "Content-Type is not provided in request");
 
@@ -336,7 +342,6 @@ esp_err_t upload_file_handler(httpd_req_t *req)
         free(f_list[i]);
 
     free(buf);
-    free(b_token);
     free(f_list);
     free(content_type);
     free(prev_f_path);
