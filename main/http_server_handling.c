@@ -115,6 +115,7 @@ void start_webserver()
 
     initialize_main_page();
     initialize_performance_testing_api();
+    initialize_file_upload();
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     // Looks like connections are not always closed, if false it can cause potential memory leak and stop accept connections at all

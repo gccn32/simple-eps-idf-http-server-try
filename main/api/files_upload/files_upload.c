@@ -54,7 +54,7 @@ static char *get_response(int post_size, char **f_list, int f_list_len, bool dat
     cJSON *json_f_list = cJSON_CreateStringArray((const char *const *)f_list, f_list_len);
     cJSON_AddItemToObject(root, "files", json_f_list);
     cJSON_AddBoolToObject(root, "dataCorrupted", data_corrupted);
-    char *res = cJSON_Print(root);
+    char *res = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return res;
 }
@@ -62,13 +62,14 @@ static char *get_response(int post_size, char **f_list, int f_list_len, bool dat
 static void get_file_path(const char *path_to_dir, char *f_name, char *f_path, int f_path_len)
 {
     snprintf(f_path, f_path_len, "%.50s/%.90s", path_to_dir, f_name);
-    uint8_t i = 0;
+    uint16_t i = 0;
+    char *dot = strrchr(f_name, '.');
+
     while (is_file(f_path))
     {
         i++;
-        char *dot = strrchr(f_name, '.');
         if (dot == NULL)
-            snprintf(f_path, f_path_len, "%.50s/%.90s(%d)", path_to_dir, f_name, i);
+            snprintf(f_path, f_path_len, "%.50s/%.50s(%d)", path_to_dir, f_name, i);
         else
         {
             char name[90];
@@ -89,9 +90,10 @@ static b_header_parse_status_t parse_boundary_header(char *b_token, int b_token_
     if (boundary_start == NULL)
         return B_HEADER_START_NOT_FOUND;
 
-    if ((boundary_start + b_token_len)[0] == '-' && (boundary_start + b_token_len)[1] == '-')
+    if (boundary_start - *f_start + b_token_len + 2 <= buf_len && (boundary_start + b_token_len)[0] == '-' && (boundary_start + b_token_len)[1] == '-')
     {
-        *prev_f_end = boundary_start - 2;
+        if (boundary_num != 0)
+            *prev_f_end = boundary_start - 2;
         return B_HEADER_LAST_HEADER;
     }
 
@@ -115,7 +117,7 @@ static b_header_parse_status_t parse_boundary_header(char *b_token, int b_token_
     int file_name_len = file_name_end - file_name_start;
     if (file_name_len >= MAX_UPLOAD_FILE_NAME_LEN - 1)
     {
-        int file_name_len = MAX_UPLOAD_FILE_NAME_LEN - 1;
+        file_name_len = MAX_UPLOAD_FILE_NAME_LEN - 1;
         file_name_start = file_name_end - file_name_len;
     }
     // do not change
@@ -161,6 +163,7 @@ static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_b
     int requested_data_len = buf_len - (f_read_buf - buf);
     int ret = 0;
     *received = 0;
+    int i = 0;
     do
     {
         ret = httpd_req_recv(req, (char *)f_read_buf + *received, requested_data_len - *received);
@@ -170,6 +173,10 @@ static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_b
             // Check if it was a timeout (retrying is allowed)
             if (ret == HTTPD_SOCK_ERR_TIMEOUT)
             {
+                i++;
+                if (i > 2)
+                    return RETRIEVE_DATA_FAIL;
+
                 continue;
             }
             // Real socket error occurred
@@ -204,10 +211,10 @@ static void upload_file_handler(void *arg)
         finish_task(req);
     }
 
-    char *content_type = malloc(201);
-    if (httpd_req_get_hdr_value_str(req, "Content-Type", content_type, 200) != ESP_OK)
+    int content_type_len = 201;
+    char content_type[content_type_len];
+    if (httpd_req_get_hdr_value_str(req, "Content-Type", content_type, content_type_len - 1) != ESP_OK)
     {
-        free(content_type);
         http_400_error_handler(req, "Content-Type is not provided in request");
         finish_task(req);
     }
@@ -226,7 +233,7 @@ static void upload_file_handler(void *arg)
     int cur_f_in_list = 0;
 
     int prev_f_path_len = 150;
-    char *prev_f_path = malloc(prev_f_path_len);
+    char prev_f_path[prev_f_path_len];
 
     char f_name[MAX_UPLOAD_FILE_NAME_LEN];
     char prev_f_name[MAX_UPLOAD_FILE_NAME_LEN];
@@ -301,7 +308,7 @@ static void upload_file_handler(void *arg)
                     fwrite(prev_f_start, 1, prev_f_end - prev_f_start, file);
 
                     int shift = f_read_buf + received - prev_f_end;
-                    memcpy(buf, prev_f_end, shift);
+                    memmove(buf, prev_f_end, shift);
                     f_start = buf;
                     f_read_buf = buf + shift;
                     prev_f_start = buf;
@@ -348,6 +355,9 @@ static void upload_file_handler(void *arg)
         } while (!is_last_b && !is_in_file && !data_corrupted);
     } while (remaining > 0 && !data_corrupted && !is_last_b);
 
+    if (file != NULL)
+        fclose(file);
+
     char *response = get_response(content_len, f_list, cur_f_in_list, data_corrupted);
 
     for (int i = 0; i < cur_f_in_list; i++)
@@ -355,8 +365,6 @@ static void upload_file_handler(void *arg)
 
     free(buf);
     free(f_list);
-    free(content_type);
-    free(prev_f_path);
 
     ESP_LOGI(TAG, "Responded successfully");
     httpd_resp_set_type(req, HTTPD_TYPE_JSON);
@@ -369,13 +377,6 @@ static void upload_file_handler(void *arg)
 
 esp_err_t file_upload_async(httpd_req_t *req)
 {
-
-    if (async_upload_f_sem == NULL)
-    {
-        async_upload_f_sem = xSemaphoreCreateBinary();
-        xSemaphoreGive(async_upload_f_sem);
-    }
-
     if (xSemaphoreTake(async_upload_f_sem, 0) != pdTRUE)
     {
         ESP_LOGW(TAG, "Async handler busy! Rejecting new request.");
@@ -406,4 +407,10 @@ esp_err_t file_upload_async(httpd_req_t *req)
     }
 
     return ESP_OK;
+}
+
+void initialize_file_upload()
+{
+    async_upload_f_sem = xSemaphoreCreateBinary();
+    xSemaphoreGive(async_upload_f_sem);
 }
