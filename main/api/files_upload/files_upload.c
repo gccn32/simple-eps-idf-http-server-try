@@ -240,8 +240,12 @@ static void upload_file_handler(void *arg)
     int cur_boundary = 0;
 
     int max_boundary_len = 250;
-    int buf_len = 1024 * 32;
+    int buf_len = 1024 * 8;
     uint8_t *buf = malloc(buf_len + max_boundary_len);
+
+    int f_buf_len = 1024 * 64;
+    uint8_t *f_buf = heap_caps_malloc(f_buf_len, MALLOC_CAP_SPIRAM);
+    uint8_t *cur_f_buf = f_buf;
 
     uint8_t *f_start = buf;
     uint8_t *f_read_buf = buf;
@@ -270,6 +274,7 @@ static void upload_file_handler(void *arg)
             {
                 ESP_EARLY_LOGI(TAG, "Removing file %s", prev_f_path);
                 fclose(file);
+                file = NULL;
                 remove(prev_f_path);
             }
             break;
@@ -290,6 +295,7 @@ static void upload_file_handler(void *arg)
                     if (file != NULL)
                     {
                         fclose(file);
+                        file = NULL;
                         remove(prev_f_path);
                     }
                     break;
@@ -297,15 +303,23 @@ static void upload_file_handler(void *arg)
                 else
                 {
                     prev_f_end = prev_f_start > f_read_buf + received - max_boundary_len ? prev_f_start : f_read_buf + received - max_boundary_len;
-
-                    if (file == NULL)
+                    int chunk_len = prev_f_end - prev_f_start;
+                    int remaining_f_buf_space = f_buf_len - (cur_f_buf - f_buf);
+                    if (remaining_f_buf_space < chunk_len)
                     {
-                        get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
-                        file = fopen(prev_f_path, "wb");
                         if (file == NULL)
-                            printf("Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
+                        {
+                            get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
+                            file = fopen(prev_f_path, "wb");
+                            if (file == NULL)
+                                printf("Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
+                        }
+                        fwrite(f_buf, 1, cur_f_buf - f_buf, file);
+                        cur_f_buf = f_buf;
                     }
-                    fwrite(prev_f_start, 1, prev_f_end - prev_f_start, file);
+
+                    memcpy(cur_f_buf, prev_f_start, chunk_len);
+                    cur_f_buf += chunk_len;
 
                     int shift = f_read_buf + received - prev_f_end;
                     memmove(buf, prev_f_end, shift);
@@ -326,8 +340,14 @@ static void upload_file_handler(void *arg)
                         if (file == NULL)
                             ESP_LOGI(TAG, "Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
                     }
-                    fwrite(prev_f_start, 1, prev_f_end - prev_f_start, file);
 
+                    if (f_buf != cur_f_buf)
+                    {
+                        fwrite(f_buf, 1, cur_f_buf - f_buf, file);
+                        cur_f_buf = f_buf;
+                    }
+
+                    fwrite(prev_f_start, 1, prev_f_end - prev_f_start, file);
                     add_file_to_list(prev_f_name, &f_list, &f_list_len, &cur_f_in_list);
 
                     fclose(file);
@@ -348,6 +368,7 @@ static void upload_file_handler(void *arg)
                 if (file != NULL)
                 {
                     fclose(file);
+                    file = NULL;
                     remove(prev_f_path);
                 }
                 break;
@@ -365,7 +386,7 @@ static void upload_file_handler(void *arg)
 
     free(buf);
     free(f_list);
-
+    free(f_buf);
     ESP_LOGI(TAG, "Responded successfully");
     httpd_resp_set_type(req, HTTPD_TYPE_JSON);
 

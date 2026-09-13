@@ -13,8 +13,8 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Memory Usage Initial Free Heap: %u bytes", xPortGetFreeHeapSize());
 
-    wifi_init_sta();
-    // wifi_init_softap();
+    // wifi_init_sta();
+    wifi_init_softap();
     set_up_time();
 
     mount_littlefs();
