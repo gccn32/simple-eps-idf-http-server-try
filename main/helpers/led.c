@@ -39,8 +39,8 @@ static r_g_b_descriptor led_color = {
 };
 static int cur_led_bright = 10;
 
-static int top_button_chanels[] = {4};
-static int bottom_button_chanels[] = {11};
+static int top_button_chanels[] = {1};
+static int bottom_button_chanels[] = {14};
 static led_flashing_mode_t led_switching_mode;
 static int get_next_index(int index)
 {
@@ -245,13 +245,13 @@ static void top_click_handler(touch_click_events_helper_t event)
 
 static void bottom_click_handler(touch_click_events_helper_t event)
 {
+    // ESP_LOGI(TAG, "Down handler (Channel-GPIO 11) %s", get_event_name(event));
     if (event == TOUCH_CLICK)
         change_led_switching_mode();
     else if (event == TOUCH_LONG_TOUCH_START)
         start_fade_led_out();
     else if (event == TOUCH_LONG_TOUCH_END)
         stop_fade_lade_in_out();
-    // ESP_LOGI(TAG, "Down handler (Channel-GPIO 11) %s", get_event_name(event));
 }
 
 void initialize_led()
@@ -277,5 +277,5 @@ void initialize_led()
     add_touch_chanel(bottom_button_chanels, sizeof(bottom_button_chanels) / sizeof(int), bottom_click_handler);
     led_mutex = xSemaphoreCreateMutex();
 
-    ESP_LOGI(TAG, "LED touch initialized on pin 4(up click) and 11(down click)");
+    ESP_LOGI(TAG, "LED touch initialized on pin 1(up click) and 14(down click)");
 }

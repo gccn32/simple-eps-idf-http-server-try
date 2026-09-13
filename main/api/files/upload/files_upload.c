@@ -7,13 +7,12 @@
 #include "string.h"
 #include "sys/stat.h"
 #include "errno.h"
-#include "../error_handlers/error_handlers.h"
-#include "../../services/request_counter.h"
-#include "../../helpers/fs_operations.h"
+#include "../../error_handlers/error_handlers.h"
+#include "../../../services/request_counter.h"
+#include "../../../helpers/fs_operations.h"
 
 #define MAX_UPLOAD_FILE_NAME_LEN 50
-static const char *TAG = "IMAGE-UPLOAD";
-static char *f_dir_path = "/littlefs/temp";
+static const char *TAG = "FILES-UPLOAD";
 static int max_payload_size = 1024 * 1024 * 100;
 static SemaphoreHandle_t async_upload_f_sem = NULL;
 
@@ -243,7 +242,7 @@ static void upload_file_handler(void *arg)
     int buf_len = 1024 * 8;
     uint8_t *buf = malloc(buf_len + max_boundary_len);
 
-    int f_buf_len = 1024 * 64;
+    int f_buf_len = 1024 * 256;
     uint8_t *f_buf = heap_caps_malloc(f_buf_len, MALLOC_CAP_SPIRAM);
     uint8_t *cur_f_buf = f_buf;
 
@@ -309,7 +308,7 @@ static void upload_file_handler(void *arg)
                     {
                         if (file == NULL)
                         {
-                            get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
+                            get_file_path(temp_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
                             file = fopen(prev_f_path, "wb");
                             if (file == NULL)
                                 printf("Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
@@ -335,7 +334,7 @@ static void upload_file_handler(void *arg)
                 {
                     if (file == NULL)
                     {
-                        get_file_path(f_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
+                        get_file_path(temp_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
                         file = fopen(prev_f_path, "wb");
                         if (file == NULL)
                             ESP_LOGI(TAG, "Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);

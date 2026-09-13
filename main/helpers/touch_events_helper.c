@@ -125,10 +125,10 @@ static void get_touched_group(int chan_id, touch_group_handler_data_t **touched_
 
 static bool IRAM_ATTR touch_active_callback(touch_sensor_handle_t sens_handle, const touch_active_event_data_t *event, void *user_ctx)
 {
+    // ESP_EARLY_LOGI(TAG, "Handler touch_active_callback");
     touch_group_handler_data_t *touched_group = NULL;
     get_touched_group(event->chan_id, &touched_group);
     // if (touched_group->cb == NULL)
-    //     ESP_EARLY_LOGI(TAG, "Handler is NULL touch_active_callback");
     if (touched_group->touch_counter == 0)
     {
         touched_group->long_touch_started = false;
@@ -145,6 +145,7 @@ static bool IRAM_ATTR touch_active_callback(touch_sensor_handle_t sens_handle, c
 
 static bool IRAM_ATTR touch_inactive_callback(touch_sensor_handle_t sens_handle, const touch_active_event_data_t *event, void *user_ctx)
 {
+    // ESP_EARLY_LOGI(TAG, "Handler touch_inactive_callback");
     touch_group_handler_data_t *touched_group = NULL;
     get_touched_group(event->chan_id, &touched_group);
     touched_group->touch_counter--;

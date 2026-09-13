@@ -4,6 +4,7 @@
 #include "../lib/template_helpers.h"
 #include "../../services/request_counter.h"
 #include "dirent.h"
+#include "../../helpers/fs_operations.h"
 
 // static const char *TAG = "TEMP-PREVIEW";
 
@@ -21,10 +22,9 @@ static void read_files_in_dir(temp_preview_template_f_t ***f_list, int *f_list_l
 {
     int f_path_len = 150;
     char f_path[f_path_len];
-    char *relative_path = "/temp";
-    char *f_dir_path = "/littlefs/temp";
+    char *relative_url_path = "/temp";
 
-    DIR *dir = opendir(f_dir_path);
+    DIR *dir = opendir(temp_dir_path);
     if (dir)
     {
         struct dirent *en;
@@ -32,7 +32,7 @@ static void read_files_in_dir(temp_preview_template_f_t ***f_list, int *f_list_l
         {
             update_f_list_len(f_list, f_list_len, cur_f_in_list);
             char *copied_name = strdup(en->d_name);
-            snprintf(f_path, f_path_len, "%.20s/%.90s", relative_path, copied_name);
+            snprintf(f_path, f_path_len, "%.20s/%.90s", relative_url_path, copied_name);
             temp_preview_template_f_t *link = malloc(sizeof(temp_preview_template_f_t));
             link->f_name = copied_name;
             link->url = strdup(f_path);

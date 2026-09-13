@@ -6,7 +6,6 @@
 #include "../../helpers/fs_operations.h"
 #include "string.h"
 
-char *f_dir_path = "/littlefs/temp";
 
 esp_err_t temp_download_f_handler(httpd_req_t *req)
 {
@@ -24,13 +23,14 @@ esp_err_t temp_download_f_handler(httpd_req_t *req)
 
     int f_path_len = 150;
     char f_path[150];
-    snprintf(f_path, f_path_len, "%.20s/%.90s", f_dir_path, f_name);
+    snprintf(f_path, f_path_len, "%.20s/%.90s", temp_dir_path, f_name);
 
     if (!is_file(f_path))
         return http_404_error_handler(req, HTTPD_404_NOT_FOUND);
 
-    int buf_len = 1024 * 8;
-    uint8_t *buf = malloc(buf_len);
+    int buf_len = 1024 * 256;
+    uint8_t *buf = heap_caps_malloc(buf_len, MALLOC_CAP_SPIRAM);
+
     FILE *f = fopen(f_path, "rb");
     size_t bytes_read = 0;
     esp_err_t ret = ESP_OK;
