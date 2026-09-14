@@ -12,7 +12,7 @@
 #include "helpers/touch_events_helper.h"
 #include "web-modules/main-page/main_page.h"
 #include "web-modules/temp-preview/temp_preview_page.h"
-#include "web-modules/temp-preview/temp_download_file.h"
+#include "api/files/download/file_download.h"
 #include "web-modules/hello_world/hello_world.h"
 #include "api/performance_testing/performance_testing.h"
 #include "api/lib/api_lib.h"
@@ -81,10 +81,10 @@ static void register_http_handlers()
         .method = HTTP_GET,
         .handler = get_temp_preview_handler,
     };
-    const httpd_uri_t preview_temp_download_f_handler = {
-        .uri = "/temp/*",
+    const httpd_uri_t download_f_handler = {
+        .uri = "/api/file-download/*",
         .method = HTTP_GET,
-        .handler = temp_download_f_handler,
+        .handler = file_download_async,
     };
     const httpd_uri_t api_static_files_handled = {
         .uri = "/*",
@@ -101,7 +101,7 @@ static void register_http_handlers()
     httpd_register_uri_handler(server, &api_performance_testing_handled);
     httpd_register_uri_handler(server, &api_upload_files_handler);
     httpd_register_uri_handler(server, &preview_temp_api_handler);
-    httpd_register_uri_handler(server, &preview_temp_download_f_handler);
+    httpd_register_uri_handler(server, &download_f_handler);
 
     httpd_register_uri_handler(server, &api_static_files_handled);
 }
@@ -116,7 +116,8 @@ void start_webserver()
     initialize_main_page();
     initialize_performance_testing_api();
     initialize_file_upload();
-
+    init_file_download();
+    
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     // Looks like connections are not always closed, if false it can cause potential memory leak and stop accept connections at all
     config.lru_purge_enable = true; // must be true because of issues after too many connections if false it will stop accept new connections.

@@ -8,12 +8,15 @@
 #include "sdmmc_cmd.h"
 #include "driver/sdmmc_host.h"
 #include "driver/gpio.h"
+#include "freertos/semphr.h"
 
 #define SD_PIN_CMD GPIO_NUM_38
 #define SD_PIN_CLK GPIO_NUM_39
 #define SD_PIN_D0 GPIO_NUM_40
 
 #define SD_MOUNT_POINT "/sdcard"
+
+SemaphoreHandle_t fs_operations_mutex;
 
 static const char *TAG = "FS-OPERATIONS";
 static sdmmc_card_t *s_card = NULL;
@@ -73,7 +76,7 @@ static esp_err_t mount_sd_card()
         .allocation_unit_size = 16 * 1024};
     // 1. Configure SDMMC Host (1-bit mode)
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    host.flags = SDMMC_HOST_FLAG_1BIT;      // 1-bit bus mode required
+    host.flags = SDMMC_HOST_FLAG_1BIT;        // 1-bit bus mode required
     host.max_freq_khz = SDMMC_FREQ_HIGHSPEED; // 20MHz default (or SDMMC_FREQ_HIGHSPEED 40MHz, SDMMC_FREQ_DEFAULT 20MHz)
     // 2. Configure Slot Pins for Freenove ESP32-S3 CAM
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
@@ -104,9 +107,31 @@ static esp_err_t mount_sd_card()
 
 esp_err_t mount_fs()
 {
+    fs_operations_mutex = xSemaphoreCreateMutex();
     esp_err_t res_sd = mount_sd_card();
     esp_err_t res_littlefs = mount_littlefs();
     return res_sd == ESP_FAIL || res_littlefs == ESP_FAIL ? ESP_FAIL : ESP_OK;
+}
+
+esp_err_t st_fread(uint8_t *buf, int buf_len, FILE *f, int *bytes_read, int f_read_timeout)
+{
+    if (xSemaphoreTake(fs_operations_mutex, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
+    {
+        *bytes_read = fread(buf, 1, buf_len, f);
+        xSemaphoreGive(fs_operations_mutex);
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}
+esp_err_t st_write(uint8_t *buf, int buf_len, FILE *f, int f_read_timeout)
+{
+    if (xSemaphoreTake(fs_operations_mutex, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
+    {
+        fwrite(buf, 1, buf_len, f);
+        xSemaphoreGive(fs_operations_mutex);
+        return ESP_OK;
+    }
+    return ESP_FAIL;
 }
 
 uint8_t *read_file_to_buffer(const char *filename, size_t *out_size)

@@ -10,11 +10,13 @@
 #include "../../error_handlers/error_handlers.h"
 #include "../../../services/request_counter.h"
 #include "../../../helpers/fs_operations.h"
+#include "freertos/semphr.h"
 
 #define MAX_UPLOAD_FILE_NAME_LEN 50
 static const char *TAG = "FILES-UPLOAD";
 static int max_payload_size = 1024 * 1024 * 100;
 static SemaphoreHandle_t async_upload_f_sem = NULL;
+static int f_write_timeout = 5000;
 
 typedef enum
 {
@@ -197,7 +199,6 @@ static void finish_task(httpd_req_t *req)
 static void upload_file_handler(void *arg)
 {
     httpd_req_t *req = (httpd_req_t *)arg;
-    http_info_request_happen();
     if (req->content_len <= 0)
     {
         http_400_error_handler(req, "Content-Length is not provided in request");
@@ -313,7 +314,8 @@ static void upload_file_handler(void *arg)
                             if (file == NULL)
                                 printf("Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
                         }
-                        fwrite(f_buf, 1, cur_f_buf - f_buf, file);
+                        st_write(f_buf, cur_f_buf - f_buf, file, f_write_timeout);
+
                         cur_f_buf = f_buf;
                     }
 
@@ -342,11 +344,11 @@ static void upload_file_handler(void *arg)
 
                     if (f_buf != cur_f_buf)
                     {
-                        fwrite(f_buf, 1, cur_f_buf - f_buf, file);
+                        st_write(f_buf, cur_f_buf - f_buf, file, f_write_timeout);
                         cur_f_buf = f_buf;
                     }
+                    st_write(prev_f_start, prev_f_end - prev_f_start, file, f_write_timeout);
 
-                    fwrite(prev_f_start, 1, prev_f_end - prev_f_start, file);
                     add_file_to_list(prev_f_name, &f_list, &f_list_len, &cur_f_in_list);
 
                     fclose(file);
@@ -397,6 +399,8 @@ static void upload_file_handler(void *arg)
 
 esp_err_t file_upload_async(httpd_req_t *req)
 {
+    http_info_request_happen();
+
     if (xSemaphoreTake(async_upload_f_sem, 0) != pdTRUE)
     {
         ESP_LOGW(TAG, "Async handler busy! Rejecting new request.");

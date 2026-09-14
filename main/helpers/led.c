@@ -42,6 +42,7 @@ static int cur_led_bright = 10;
 static int top_button_chanels[] = {1};
 static int bottom_button_chanels[] = {14};
 static led_flashing_mode_t led_switching_mode;
+
 static int get_next_index(int index)
 {
     return index + 1 >= LED_COLOR_COUNTS ? 0 : index + 1;

@@ -22,7 +22,7 @@ static void read_files_in_dir(temp_preview_template_f_t ***f_list, int *f_list_l
 {
     int f_path_len = 150;
     char f_path[f_path_len];
-    char *relative_url_path = "/temp";
+    char *relative_url_path = "/api/file-download";
 
     DIR *dir = opendir(temp_dir_path);
     if (dir)
