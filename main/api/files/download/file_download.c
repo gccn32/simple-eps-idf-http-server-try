@@ -40,7 +40,7 @@ static void sd_reader_task(void *pvParameters)
 
     while (1)
     {
-        if (ctx != NULL && ctx->empty_queue != NULL && xQueueReceive(ctx->empty_queue, &msg, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
+        if (xQueueReceive(ctx->empty_queue, &msg, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
         {
             if (msg.length == -1)
                 break;
@@ -127,8 +127,8 @@ static void file_download_handler(void *data)
     xQueueSend(empty_queue, &seed_b, 0);
 
     reader_ctx_t reader_ctx = {.file = f, .data_queue = data_queue, .empty_queue = empty_queue};
-    TaskHandle_t reader_task_h = NULL;
-    BaseType_t ret = xTaskCreatePinnedToCore(sd_reader_task, "sd_reader", 4 * 1024, &reader_ctx, 5, &reader_task_h, 1);
+    BaseType_t ret = xTaskCreatePinnedToCore(sd_reader_task, "sd_reader", 4 * 1024, &reader_ctx, 5, NULL, 1);
+
     if (ret != pdPASS)
     {
         ESP_LOGE(TAG, "Failed to create sd_task task");
@@ -156,7 +156,7 @@ static void file_download_handler(void *data)
                 ESP_LOGE(TAG, "Network chunk send failed or client disconnected");
                 xQueueReceive(data_queue, &tx_msg, pdMS_TO_TICKS(f_read_timeout));
                 tx_msg.length = -1;
-                xQueueSend(empty_queue, &tx_msg, pdMS_TO_TICKS(100));
+                xQueueSend(empty_queue, &tx_msg, pdMS_TO_TICKS(500));
                 break;
             }
 
@@ -198,7 +198,7 @@ esp_err_t file_download_async(httpd_req_t *req)
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initiate async handler");
-        http_500_error_handler(req, "Error happen during async file upload handling");
+        http_500_error_handler(req, "Error happen during async file download handling");
         xSemaphoreGive(async_download_f_sem);
         return err;
     }
@@ -208,7 +208,7 @@ esp_err_t file_download_async(httpd_req_t *req)
     {
         ESP_LOGE(TAG, "Failed to create worker task");
         httpd_req_async_handler_complete(async_req);
-        http_500_error_handler(req, "Error happen during async file upload handling");
+        http_500_error_handler(req, "Error happen during async file download handling");
         xSemaphoreGive(async_download_f_sem);
         return ESP_FAIL;
     }
