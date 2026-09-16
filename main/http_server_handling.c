@@ -125,7 +125,7 @@ void start_webserver()
     config.max_open_sockets = 7;
     config.open_fn = open_fn; // THIS LINE IS SPEEDING UP esp_http_server RESPONSE FROM 65ms TO 10ms
     config.core_id = 1;       // Improves performance on "Hello world" page from 220/s to 350/s
-    config.task_priority = 23;
+    // config.task_priority = 23;
     config.recv_wait_timeout = 60 * 5;
     config.send_wait_timeout = 5;
     config.uri_match_fn = httpd_uri_match_wildcard;
