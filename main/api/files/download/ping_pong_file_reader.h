@@ -1,4 +1,4 @@
-
+#include "esp_err.h"
 #include <stdatomic.h>
 
 
@@ -25,6 +25,5 @@ typedef struct
 
 esp_err_t get_p_p_data(p_p_descriptor_t *descriptor, chunk_msg_t *msg);
 esp_err_t request_p_p_data(p_p_descriptor_t *descriptor, chunk_msg_t *msg);
-void stop_p_p(p_p_descriptor_t *descriptor);
 void delete_p_p_reader(p_p_descriptor_t *descriptor);
 p_p_descriptor_t *init_p_p_reader(char *f_path);

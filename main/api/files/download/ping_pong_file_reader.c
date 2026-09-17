@@ -12,7 +12,7 @@
 static int buf_len = 1024 * 64;
 static int queue_capacity = 2;
 static const char *TAG = "P-P-READER";
-int f_read_timeout = 5000;
+static int f_read_timeout = 5000;
 
 static void sd_reader_task(void *pvParameters)
 {
@@ -65,7 +65,7 @@ esp_err_t request_p_p_data(p_p_descriptor_t *descriptor, chunk_msg_t *msg)
     return ESP_FAIL;
 }
 
-void stop_p_p(p_p_descriptor_t *descriptor)
+static void stop_p_p(p_p_descriptor_t *descriptor)
 {
     if (atomic_load(&descriptor->ctx->worker_stopped)) 
         return;
@@ -76,11 +76,12 @@ void stop_p_p(p_p_descriptor_t *descriptor)
 
     xQueueSend(descriptor->ctx->empty_queue, &msg, pdMS_TO_TICKS(100));
     int i = 0;
+    int await_time = 20;
     while (!atomic_load(&descriptor->ctx->worker_stopped))
     {
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(await_time));
         i++;
-        if (i > 200)
+        if (i > f_read_timeout/await_time + 5)
         {
             ESP_LOGI(TAG, "No way to wait until task is stopped");
             break;
