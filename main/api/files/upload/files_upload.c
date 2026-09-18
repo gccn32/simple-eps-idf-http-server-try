@@ -5,18 +5,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "string.h"
-#include "sys/stat.h"
 #include "errno.h"
 #include "../../error_handlers/error_handlers.h"
 #include "../../../services/request_counter.h"
 #include "../../../helpers/fs_operations.h"
 #include "freertos/semphr.h"
+#include "ping_pong_file_writer.h"
 
 #define MAX_UPLOAD_FILE_NAME_LEN 50
 static const char *TAG = "FILES-UPLOAD";
 static int max_payload_size = 1024 * 1024 * 100;
 static SemaphoreHandle_t async_upload_f_sem = NULL;
-static int f_write_timeout = 5000;
 
 typedef enum
 {
@@ -32,16 +31,14 @@ typedef enum
 
 static void replace_all_chars(char *str)
 {
-    char old_char = ' ';
-    char new_char = '-';
+    // TODO: add replacing for / and \;
+    char old_char[] = {' ', '/', '\\'};
+    char new_char[] = {'-', '-', '-'};
 
     for (int i = 0; str[i] != '\0'; i++)
-    {
-        if (str[i] == old_char)
-        {
-            str[i] = new_char;
-        }
-    }
+        for (int c = 0; c < sizeof(old_char); c++)
+            if (str[i] == old_char[c])
+                str[i] = new_char[c];
 }
 
 static char *get_response(int post_size, char **f_list, int f_list_len, bool data_corrupted)
@@ -58,29 +55,6 @@ static char *get_response(int post_size, char **f_list, int f_list_len, bool dat
     char *res = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return res;
-}
-
-static void get_file_path(const char *path_to_dir, char *f_name, char *f_path, int f_path_len)
-{
-    snprintf(f_path, f_path_len, "%.50s/%.90s", path_to_dir, f_name);
-    uint16_t i = 0;
-    char *dot = strrchr(f_name, '.');
-
-    while (is_file(f_path))
-    {
-        i++;
-        if (dot == NULL)
-            snprintf(f_path, f_path_len, "%.50s/%.50s(%d)", path_to_dir, f_name, i);
-        else
-        {
-            char name[90];
-            int name_len = dot - f_name;
-            strncpy(name, f_name, name_len);
-            name[name_len] = 0;
-            snprintf(f_path, f_path_len, "%.50s/%.50s(%d)%.5s", path_to_dir, name, i, dot);
-        }
-    }
-    ESP_EARLY_LOGI(TAG, "full name %s path %s", f_name, f_path);
 }
 
 static b_header_parse_status_t parse_boundary_header(char *b_token, int b_token_len, int boundary_num, uint8_t **f_start, int buf_len, char *f_name,
@@ -171,7 +145,6 @@ static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_b
         //  = fread(f_read_buf + *retrieved_for_parsing, 1, requested_data_len, f);
         if (ret <= 0)
         {
-            // Check if it was a timeout (retrying is allowed)
             if (ret == HTTPD_SOCK_ERR_TIMEOUT)
             {
                 i++;
@@ -180,7 +153,6 @@ static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_b
 
                 continue;
             }
-            // Real socket error occurred
             return RETRIEVE_DATA_FAIL;
         }
         *received += ret;
@@ -189,6 +161,7 @@ static b_header_parse_status_t retrieve_data(httpd_req_t *req, uint8_t *f_read_b
     // ESP_EARLY_LOGI(TAG, "*retrieved_for_parsing after data received %d, requested data len %d", *received, requested_data_len);
     return RETRIEVE_DATA_OK;
 }
+
 static void finish_task(httpd_req_t *req)
 {
     httpd_req_async_handler_complete(req);
@@ -232,20 +205,13 @@ static void upload_file_handler(void *arg)
     char **f_list = NULL;
     int cur_f_in_list = 0;
 
-    int prev_f_path_len = 150;
-    char prev_f_path[prev_f_path_len];
-
     char f_name[MAX_UPLOAD_FILE_NAME_LEN];
     char prev_f_name[MAX_UPLOAD_FILE_NAME_LEN];
     int cur_boundary = 0;
 
     int max_boundary_len = 250;
-    int buf_len = 1024 * 8;
+    int buf_len = 1024 * 15;
     uint8_t *buf = malloc(buf_len + max_boundary_len);
-
-    int f_buf_len = 1024 * 256;
-    uint8_t *f_buf = heap_caps_malloc(f_buf_len, MALLOC_CAP_SPIRAM);
-    uint8_t *cur_f_buf = f_buf;
 
     uint8_t *f_start = buf;
     uint8_t *f_read_buf = buf;
@@ -259,7 +225,7 @@ static void upload_file_handler(void *arg)
     bool data_corrupted = false;
     bool is_last_b = false;
     bool is_in_file = false;
-    FILE *file = NULL;
+    p_p_descriptor_t *descriptor = init_p_p_writer();
 
     do
     {
@@ -270,13 +236,7 @@ static void upload_file_handler(void *arg)
         if (status == RETRIEVE_DATA_FAIL)
         {
             ESP_EARLY_LOGI(TAG, "Fail to retrieve data");
-            if (file != NULL)
-            {
-                ESP_EARLY_LOGI(TAG, "Removing file %s", prev_f_path);
-                fclose(file);
-                file = NULL;
-                remove(prev_f_path);
-            }
+            data_corrupted = true;
             break;
         }
 
@@ -292,35 +252,14 @@ static void upload_file_handler(void *arg)
                 if (remaining == 0 || cur_boundary == 0)
                 {
                     data_corrupted = true;
-                    if (file != NULL)
-                    {
-                        fclose(file);
-                        file = NULL;
-                        remove(prev_f_path);
-                    }
                     break;
                 }
                 else
                 {
                     prev_f_end = prev_f_start > f_read_buf + received - max_boundary_len ? prev_f_start : f_read_buf + received - max_boundary_len;
                     int chunk_len = prev_f_end - prev_f_start;
-                    int remaining_f_buf_space = f_buf_len - (cur_f_buf - f_buf);
-                    if (remaining_f_buf_space < chunk_len)
-                    {
-                        if (file == NULL)
-                        {
-                            get_file_path(temp_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
-                            file = fopen(prev_f_path, "wb");
-                            if (file == NULL)
-                                printf("Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
-                        }
-                        st_write(f_buf, cur_f_buf - f_buf, file, f_write_timeout);
 
-                        cur_f_buf = f_buf;
-                    }
-
-                    memcpy(cur_f_buf, prev_f_start, chunk_len);
-                    cur_f_buf += chunk_len;
+                    write_p_p_data(descriptor, prev_f_name, prev_f_start, chunk_len);
 
                     int shift = f_read_buf + received - prev_f_end;
                     memmove(buf, prev_f_end, shift);
@@ -334,25 +273,10 @@ static void upload_file_handler(void *arg)
             {
                 if (cur_boundary > 0)
                 {
-                    if (file == NULL)
-                    {
-                        get_file_path(temp_dir_path, prev_f_name, prev_f_path, prev_f_path_len);
-                        file = fopen(prev_f_path, "wb");
-                        if (file == NULL)
-                            ESP_LOGI(TAG, "Failed to open '%s'. Reason: %s (Code: %d)\n", prev_f_path, strerror(errno), errno);
-                    }
-
-                    if (f_buf != cur_f_buf)
-                    {
-                        st_write(f_buf, cur_f_buf - f_buf, file, f_write_timeout);
-                        cur_f_buf = f_buf;
-                    }
-                    st_write(prev_f_start, prev_f_end - prev_f_start, file, f_write_timeout);
+                    int chunk_len = prev_f_end - prev_f_start;
+                    write_p_p_data(descriptor, prev_f_name, prev_f_start, chunk_len);
 
                     add_file_to_list(prev_f_name, &f_list, &f_list_len, &cur_f_in_list);
-
-                    fclose(file);
-                    file = NULL;
                 }
                 prev_f_start = f_start;
                 cur_boundary++;
@@ -366,19 +290,13 @@ static void upload_file_handler(void *arg)
             else if (res == B_HEADER_PARSE_FAIL)
             {
                 data_corrupted = true;
-                if (file != NULL)
-                {
-                    fclose(file);
-                    file = NULL;
-                    remove(prev_f_path);
-                }
                 break;
             }
         } while (!is_last_b && !is_in_file && !data_corrupted);
     } while (remaining > 0 && !data_corrupted && !is_last_b);
 
-    if (file != NULL)
-        fclose(file);
+    if (remaining == 0 && !data_corrupted)
+        complete_p_p_upload(descriptor);
 
     char *response = get_response(content_len, f_list, cur_f_in_list, data_corrupted);
 
@@ -387,7 +305,8 @@ static void upload_file_handler(void *arg)
 
     free(buf);
     free(f_list);
-    free(f_buf);
+    delete_p_p_writer(descriptor);
+
     ESP_LOGI(TAG, "Responded successfully");
     httpd_resp_set_type(req, HTTPD_TYPE_JSON);
 

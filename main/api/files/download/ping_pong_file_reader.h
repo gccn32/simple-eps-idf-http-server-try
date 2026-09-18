@@ -5,7 +5,7 @@
 typedef struct
 {
     uint8_t *ptr;
-    int length;
+    int len;
 } chunk_msg_t;
 
 typedef struct

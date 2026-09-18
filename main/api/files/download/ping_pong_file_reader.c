@@ -23,18 +23,18 @@ static void sd_reader_task(void *pvParameters)
     {
         if (xQueueReceive(ctx->empty_queue, &msg, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
         {
-            if (msg.length == -1)
+            if (msg.len == -1)
                 break;
 
             int bytes_read;
             if (st_fread(msg.ptr, buf_len, ctx->file, &bytes_read, f_read_timeout) == ESP_FAIL)
             {
-                msg.length = -1;
+                msg.len = -1;
                 xQueueSend(ctx->data_queue, &msg, pdMS_TO_TICKS(f_read_timeout));
                 break;
             }
 
-            msg.length = bytes_read;
+            msg.len = bytes_read;
 
             if (xQueueSend(ctx->data_queue, &msg, pdMS_TO_TICKS(f_read_timeout)) != pdPASS)
                 break;
@@ -72,7 +72,7 @@ static void stop_p_p(p_p_descriptor_t *descriptor)
         
     xQueueReset(descriptor->ctx->empty_queue);
     xQueueReset(descriptor->ctx->data_queue);
-    chunk_msg_t msg = {.length = -1};
+    chunk_msg_t msg = {.len = -1};
 
     xQueueSend(descriptor->ctx->empty_queue, &msg, pdMS_TO_TICKS(100));
     int i = 0;
@@ -124,8 +124,8 @@ p_p_descriptor_t *init_p_p_reader(char *f_path)
     QueueHandle_t data_queue = xQueueCreate(queue_capacity, sizeof(chunk_msg_t));
     QueueHandle_t empty_queue = xQueueCreate(queue_capacity, sizeof(chunk_msg_t));
 
-    chunk_msg_t seed_a = {.ptr = buf_a, .length = 0};
-    chunk_msg_t seed_b = {.ptr = buf_b, .length = 0};
+    chunk_msg_t seed_a = {.ptr = buf_a, .len = 0};
+    chunk_msg_t seed_b = {.ptr = buf_b, .len = 0};
 
     xQueueSend(empty_queue, &seed_a, 0);
     xQueueSend(empty_queue, &seed_b, 0);

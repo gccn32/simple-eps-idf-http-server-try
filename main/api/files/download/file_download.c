@@ -68,10 +68,10 @@ static void file_download_handler(void *data)
     {
         if (get_p_p_data(descriptor, &msg) == ESP_OK)
         {
-            if (msg.length <= 0)
+            if (msg.len <= 0)
                 break;
 
-            err = httpd_resp_send_chunk(req, (char *)msg.ptr, msg.length);
+            err = httpd_resp_send_chunk(req, (char *)msg.ptr, msg.len);
             if (err != ESP_OK)
             {
                 xSemaphoreGive(async_download_f_sem);

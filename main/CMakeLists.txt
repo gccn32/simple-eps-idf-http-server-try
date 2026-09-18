@@ -6,7 +6,8 @@ idf_component_register(SRCS  "main.c" "helpers/time_set_up.c" "services/request_
 "web-modules/main-page/main_page.c" "web-modules/main-page/main_page_template.c" "api/performance_testing/performance_testing.c" 
 "web-modules/lib/template_helpers.c" "api/static_files/static_files.c" "api/lib/api_lib.c" "api/files/upload/files_upload.c" 
 "web-modules/temp-preview/temp_preview_page.c" "web-modules/temp-preview/temp_preview_template.c" "api/files/download/file_download.c"
-"web-modules/hello_world/hello_world.c" "api/files/download/ping_pong_file_reader.c"
+"web-modules/hello_world/hello_world.c" "api/files/download/ping_pong_file_reader.c" 
+"api/files/upload/ping_pong_file_writer.c"
 
                     INCLUDE_DIRS ".")
 
