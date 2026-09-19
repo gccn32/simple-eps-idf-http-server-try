@@ -13,7 +13,7 @@
     "--compile-commands-dir=/home/valerii/Development/simple-eps-idf-http-server-try/build"
 ],
 "idf.port": "/dev/ttyACM0",
-"idf.flashType": "JTAG",
+"idf.flashType": "UART",
 "idf.openOcdLaunchArgs": [
   "-f",
   "board/esp32s3-builtin.cfg"

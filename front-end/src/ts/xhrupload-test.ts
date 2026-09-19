@@ -7,7 +7,6 @@ const abortButton = <HTMLButtonElement>document.getElementById('abort')!;
 
 fileInput.addEventListener('change', () => {
   const xhr = new XMLHttpRequest();
-  xhr.timeout = 5 * 60 * 1000;
 
   // Link abort button
   abortButton.addEventListener('click', () => xhr.abort(), { once: true });
@@ -55,7 +54,7 @@ fileInput.addEventListener('change', () => {
   }
   // Theoretically, event listeners could be set after the open() call
   // but browsers are buggy here
-  xhr.open('POST', '/api/file-upload', true);
+  xhr.open('POST', '/api/file/', true);
 
   // Note that the event listener must be set before sending (as it is a preflighted request)
   xhr.send(fileData);

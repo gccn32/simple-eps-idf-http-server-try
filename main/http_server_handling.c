@@ -19,6 +19,7 @@
 #include "api/static_files/static_files.h"
 #include "api/error_handlers/error_handlers.h"
 #include "api/files/upload/files_upload.h"
+#include "api/files/delete/file_delete.h"
 
 httpd_handle_t server = NULL;
 static const char *TAG = "HTTP-SERVER";
@@ -71,20 +72,26 @@ static void register_http_handlers()
         .method = HTTP_GET,
         .handler = performance_testing_api,
     };
-    const httpd_uri_t api_upload_files_handler = {
-        .uri = "/api/file-upload",
-        .method = HTTP_POST,
-        .handler = file_upload_async,
-    };
+
     const httpd_uri_t preview_temp_api_handler = {
         .uri = "/temp/",
         .method = HTTP_GET,
         .handler = get_temp_preview_handler,
     };
+    const httpd_uri_t api_upload_files_handler = {
+        .uri = "/api/file/",
+        .method = HTTP_POST,
+        .handler = file_upload_async,
+    };
     const httpd_uri_t download_f_handler = {
-        .uri = "/api/file-download/*",
+        .uri = "/api/file/*",
         .method = HTTP_GET,
         .handler = file_download_async,
+    };
+    const httpd_uri_t delete_f_handler = {
+        .uri = "/api/file/*",
+        .method = HTTP_DELETE,
+        .handler = file_delete,
     };
     const httpd_uri_t api_static_files_handled = {
         .uri = "/*",
@@ -102,6 +109,7 @@ static void register_http_handlers()
     httpd_register_uri_handler(server, &api_upload_files_handler);
     httpd_register_uri_handler(server, &preview_temp_api_handler);
     httpd_register_uri_handler(server, &download_f_handler);
+    httpd_register_uri_handler(server, &delete_f_handler);
 
     httpd_register_uri_handler(server, &api_static_files_handled);
 }
@@ -117,7 +125,7 @@ void start_webserver()
     initialize_performance_testing_api();
     initialize_file_upload();
     init_file_download();
-    
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     // Looks like connections are not always closed, if false it can cause potential memory leak and stop accept connections at all
     config.lru_purge_enable = true; // must be true because of issues after too many connections if false it will stop accept new connections.

@@ -1,6 +1,6 @@
+#pragma once
 #include "esp_err.h"
 #include <stdatomic.h>
-
 
 typedef struct
 {

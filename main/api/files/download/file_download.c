@@ -29,7 +29,7 @@ static void file_download_handler(void *data)
     httpd_req_t *req = (httpd_req_t *)data;
 
     char f_name[60];
-    int parsed = sscanf(req->uri, "/api/file-download/%50s", f_name);
+    int parsed = sscanf(req->uri, "/api/file/%50s", f_name);
     if (parsed != 1 || !f_name[0])
     {
         http_400_error_handler(req, "Request is wrong");

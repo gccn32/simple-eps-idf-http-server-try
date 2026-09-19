@@ -11,23 +11,33 @@ temp_preview_template_context_t *data = (temp_preview_template_context_t*) t_dat
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Temp preview</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Temp preview</title>
 </head>
 
 <body>
-    {% if (data->cur_f_in_list > 0) { %}
-    <ul>
-        {% for (int i = 0; i < data->cur_f_in_list; i++) {
-            temp_preview_template_f_t *file = data->f_list[i]; %}
-            <li><a href="{{file->url | %s}}" target="_blank">{{file->f_name | %s}}</a></li>
-            {% } %}
-    </ul>
-    {% } else { %}
-    <b>No available files</b>
-    {% } %}
+  {% if (data->cur_f_in_list > 0) { %}
+  <ul>
+    {% for (int i = 0; i < data->cur_f_in_list; i++) {
+      temp_preview_template_f_t *file = data->f_list[i]; %}
+      <li><a href="{{file->url | %s}}" target="_blank">{{file->f_name | %s}}</a> <button>Delete</button></li>
+      {% } %}
+  </ul>
+  {% } else { %}
+  <b>No available files</b>
+  {% } %}
 </body>
+<script>
+  document.querySelectorAll('button').forEach(e =>
+    e
+      .addEventListener('click', (ev) => {
+        const url = ev.target.parentElement.querySelector('a').href;
+        fetch(url, { method: "DELETE" }).then(() => window.location.reload());
+      })
+  );
+</script>
 
 </html>
 {% } %}
+
