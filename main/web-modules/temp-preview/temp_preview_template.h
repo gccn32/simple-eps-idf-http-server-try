@@ -1,3 +1,4 @@
+#pragma once
 #include "../lib/template_helpers.h"
 
 typedef struct

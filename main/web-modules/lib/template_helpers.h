@@ -1,3 +1,4 @@
+#pragma once
 typedef struct template_callback_context
 {
     int buf_size;

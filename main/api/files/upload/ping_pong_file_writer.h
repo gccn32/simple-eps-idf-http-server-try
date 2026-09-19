@@ -1,4 +1,4 @@
-
+#pragma once
 #include <stdatomic.h>
 #include "esp_err.h"
 

@@ -1,3 +1,4 @@
+#pragma once
 #include <time.h>
 
 struct requests_per_second

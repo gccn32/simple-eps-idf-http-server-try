@@ -86,7 +86,7 @@ static b_header_parse_status_t parse_boundary_header(char *b_token, int b_token_
 
     uint8_t *file_name_start = file_name_attr_start + file_name_attr_len;
     uint8_t *file_name_end = memchr(file_name_start, '"', boundary_end - file_name_start);
-    if (file_name_end == NULL || file_name_end - file_name_start > 70)
+    if (file_name_end == NULL || file_name_end - file_name_start > 70 || file_name_end - file_name_start == 1)
         return B_HEADER_PARSE_FAIL;
 
     int file_name_len = file_name_end - file_name_start;
@@ -226,6 +226,12 @@ static void upload_file_handler(void *arg)
     bool is_last_b = false;
     bool is_in_file = false;
     p_p_descriptor_t *descriptor = init_p_p_writer();
+    if (descriptor == NULL)
+    {
+        http_500_error_handler(req, "Internal server error");
+        free(buf);
+        finish_task(req);
+    }
 
     do
     {
@@ -274,6 +280,11 @@ static void upload_file_handler(void *arg)
                 if (cur_boundary > 0)
                 {
                     int chunk_len = prev_f_end - prev_f_start;
+                    if (chunk_len < 0)
+                    {
+                        data_corrupted = true;
+                        break;
+                    }
                     write_p_p_data(descriptor, prev_f_name, prev_f_start, chunk_len);
 
                     add_file_to_list(prev_f_name, &f_list, &f_list_len, &cur_f_in_list);
@@ -304,7 +315,8 @@ static void upload_file_handler(void *arg)
         free(f_list[i]);
 
     free(buf);
-    free(f_list);
+    if (f_list != NULL)
+        free(f_list);
     delete_p_p_writer(descriptor);
 
     ESP_LOGI(TAG, "Responded successfully");

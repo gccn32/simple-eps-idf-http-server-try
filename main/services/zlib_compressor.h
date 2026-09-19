@@ -1,3 +1,4 @@
+#pragma once
 #include "esp_err.h"
 
 typedef size_t (*data_provider_cb)(char *buf, size_t max_len, void *user_context);

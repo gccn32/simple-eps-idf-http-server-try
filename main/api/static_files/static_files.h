@@ -1,3 +1,4 @@
+#pragma once
 #include "esp_http_server.h"
 
 void initialize_static_files_cache();

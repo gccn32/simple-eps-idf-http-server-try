@@ -1,4 +1,5 @@
 // #include <esp_system.h>
+#pragma once
 
 struct interesting_system_information
 {

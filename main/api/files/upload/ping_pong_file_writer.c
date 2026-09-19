@@ -9,7 +9,7 @@
 #include "esp_err.h"
 #include "ping_pong_file_writer.h"
 
-static int buf_len = 1024 * 256;
+static int buf_len = 1024 * 64;
 static int queue_capacity = 2;
 static const char *TAG = "P-P-WRITER";
 static int f_write_timeout = 5000;
@@ -83,6 +83,8 @@ static void sd_writer_task(void *pvParameters)
 }
 esp_err_t write_p_p_data(p_p_descriptor_t *descriptor, char *f_name, uint8_t *buf, int data_len)
 {
+    if (atomic_load(&descriptor->ctx->worker_stopped))
+        return ESP_FAIL;
     int f_path_len = 150;
     char f_path[f_path_len];
     // ESP_EARLY_LOGI(TAG, "write_p_p_data f_name: %s, data_len %d", f_name, data_len);
@@ -93,6 +95,8 @@ esp_err_t write_p_p_data(p_p_descriptor_t *descriptor, char *f_name, uint8_t *bu
         descriptor->f_path = strdup(f_path);
         descriptor->f_name = strdup(f_name);
         descriptor->file = fopen(descriptor->f_path, "wb");
+        if (descriptor->file == NULL)
+            return ESP_FAIL;
         // ESP_EARLY_LOGI(TAG, "Fopen has been called %s", descriptor->f_path);
 
         if (xQueueReceive(descriptor->ctx->empty_queue, descriptor->cur_msg, pdMS_TO_TICKS(f_write_timeout)) == pdTRUE)
