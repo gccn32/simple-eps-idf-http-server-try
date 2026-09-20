@@ -1,6 +1,9 @@
 #pragma once
 #include "esp_err.h"
-#include <stdatomic.h>
+#include "stdatomic.h"
+#include "stdio.h"
+#include "stdint.h"
+#include "freertos/queue.h"
 
 typedef struct
 {
@@ -11,6 +14,7 @@ typedef struct
 typedef struct
 {
     FILE *file;
+    char *f_path;
     QueueHandle_t data_queue;
     QueueHandle_t empty_queue;
     atomic_bool worker_stopped;

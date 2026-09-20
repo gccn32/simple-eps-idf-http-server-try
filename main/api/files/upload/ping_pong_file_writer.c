@@ -8,8 +8,9 @@
 #include "stdatomic.h"
 #include "esp_err.h"
 #include "ping_pong_file_writer.h"
+#include "freertos/queue.h"
 
-static int buf_len = 1024 * 64;
+static int buf_len = 1024 * 128;
 static int queue_capacity = 2;
 static const char *TAG = "P-P-WRITER";
 static int f_write_timeout = 5000;
@@ -42,6 +43,8 @@ static void sd_writer_task(void *pvParameters)
     writer_ctx_t *ctx = (writer_ctx_t *)pvParameters;
     chunk_msg_t msg;
     FILE *file = NULL;
+    char *f_path = NULL;
+
     while (1)
     {
         if (xQueueReceive(ctx->data_queue, &msg, pdMS_TO_TICKS(f_write_timeout)) == pdTRUE)
@@ -50,12 +53,22 @@ static void sd_writer_task(void *pvParameters)
             if (msg.close_prev_file && file != NULL)
             {
                 ESP_EARLY_LOGI(TAG, "File has been closed");
-                fclose(file);
+                st_fclose(file, f_path);
+                free(f_path);
+                f_path = NULL;
             }
             if (msg.len == -1)
                 break;
 
             file = msg.file;
+            if (f_path == NULL || (msg.f_path != NULL && strcmp(f_path, msg.f_path) != 0))
+            {
+                if (f_path != NULL)
+                    free(f_path);
+                if (msg.f_path != NULL)
+                    f_path = strdup(msg.f_path);
+            }
+
             if (st_write(msg.ptr, msg.len, msg.file, f_write_timeout) == ESP_FAIL)
             {
                 msg.len = -1;
@@ -77,6 +90,8 @@ static void sd_writer_task(void *pvParameters)
         else
             break;
     }
+    if (f_path != NULL)
+        free(f_path);
     atomic_store(&ctx->worker_stopped, true);
     ESP_LOGI(TAG, "sd_writer_task: Writer task has been stopped");
     vTaskDelete(NULL);
@@ -94,7 +109,7 @@ esp_err_t write_p_p_data(p_p_descriptor_t *descriptor, char *f_name, uint8_t *bu
         get_file_path(temp_dir_path, f_name, f_path, f_path_len);
         descriptor->f_path = strdup(f_path);
         descriptor->f_name = strdup(f_name);
-        descriptor->file = fopen(descriptor->f_path, "wb");
+        descriptor->file = st_fopen(descriptor->f_path, "wb");
         if (descriptor->file == NULL)
             return ESP_FAIL;
         // ESP_EARLY_LOGI(TAG, "Fopen has been called %s", descriptor->f_path);
@@ -104,6 +119,7 @@ esp_err_t write_p_p_data(p_p_descriptor_t *descriptor, char *f_name, uint8_t *bu
             memcpy(descriptor->cur_msg->ptr, buf, data_len);
             descriptor->cur_msg->len = data_len;
             descriptor->cur_msg->file = descriptor->file;
+            descriptor->cur_msg->f_path = descriptor->f_path;
             descriptor->cur_msg->close_prev_file = false;
         }
         else
@@ -149,9 +165,9 @@ esp_err_t write_p_p_data(p_p_descriptor_t *descriptor, char *f_name, uint8_t *bu
 
             memcpy(descriptor->cur_msg->ptr, buf, data_len);
             descriptor->cur_msg->len = data_len;
-            descriptor->file = fopen(f_path, "wb");
+            descriptor->file = st_fopen(f_path, "wb");
             // ESP_EARLY_LOGI(TAG, "fopen was called when f_names are different %s, %s", f_path, f_name);
-
+            descriptor->cur_msg->f_path = descriptor->f_path;
             descriptor->cur_msg->file = descriptor->file;
             descriptor->cur_msg->close_prev_file = true;
         }
@@ -182,19 +198,20 @@ esp_err_t complete_p_p_upload(p_p_descriptor_t *descriptor)
     descriptor->file = NULL;
     free(descriptor->f_path);
     descriptor->f_path = NULL;
+    descriptor->cur_msg->f_path = NULL;
     return ESP_OK;
 }
 static void remove_file(p_p_descriptor_t *descriptor)
 {
     if (descriptor->file != NULL)
     {
-        fclose(descriptor->file);
+        st_fclose(descriptor->file, descriptor->f_path);
         descriptor->file = NULL;
     }
     if (descriptor->f_path != NULL)
     {
         ESP_EARLY_LOGI(TAG, "remove_file: File was removed %s, ", descriptor->f_path);
-        remove(descriptor->f_path);
+        st_remove(descriptor->f_path);
     }
 }
 

@@ -24,7 +24,7 @@ esp_err_t file_delete(httpd_req_t *req)
     if (!is_file(f_path))
         return http_404_error_handler(req, HTTPD_404_NOT_FOUND);
 
-    if (remove(f_path) != 0)
+    if (st_remove(f_path) == ESP_FAIL)
         http_500_error_handler(req, "Internal service error");
 
     ESP_LOGI(TAG, "File %s was removed", f_path);

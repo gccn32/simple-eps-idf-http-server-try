@@ -210,7 +210,7 @@ static void upload_file_handler(void *arg)
     int cur_boundary = 0;
 
     int max_boundary_len = 250;
-    int buf_len = 1024 * 15;
+    int buf_len = 1024 * 12;
     uint8_t *buf = malloc(buf_len + max_boundary_len);
 
     uint8_t *f_start = buf;

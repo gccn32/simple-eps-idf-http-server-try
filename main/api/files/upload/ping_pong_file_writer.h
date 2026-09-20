@@ -1,12 +1,19 @@
 #pragma once
-#include <stdatomic.h>
+#include "stdatomic.h"
 #include "esp_err.h"
+#include "stdbool.h"
+#include "freertos/FreeRTOS.h"
+#include "stdatomic.h"
+#include "stdio.h"
+#include "stdint.h"
+#include "freertos/queue.h"
 
 typedef struct
 {
     uint8_t *ptr;
     int len;
     FILE *file;
+    char *f_path;
     bool close_prev_file;
 } chunk_msg_t;
 

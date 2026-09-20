@@ -6,7 +6,9 @@
 #include "freertos/semphr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <stdatomic.h>
+#include "freertos/queue.h"
+#include "stdatomic.h"
+#include "stdio.h"
 #include "ping_pong_file_reader.h"
 
 static int buf_len = 1024 * 64;
@@ -67,9 +69,9 @@ esp_err_t request_p_p_data(p_p_descriptor_t *descriptor, chunk_msg_t *msg)
 
 static void stop_p_p(p_p_descriptor_t *descriptor)
 {
-    if (atomic_load(&descriptor->ctx->worker_stopped)) 
+    if (atomic_load(&descriptor->ctx->worker_stopped))
         return;
-        
+
     xQueueReset(descriptor->ctx->empty_queue);
     xQueueReset(descriptor->ctx->data_queue);
     chunk_msg_t msg = {.len = -1};
@@ -81,7 +83,7 @@ static void stop_p_p(p_p_descriptor_t *descriptor)
     {
         vTaskDelay(pdMS_TO_TICKS(await_time));
         i++;
-        if (i > f_read_timeout/await_time + 5)
+        if (i > f_read_timeout / await_time + 5)
         {
             ESP_LOGI(TAG, "No way to wait until task is stopped");
             break;
@@ -94,9 +96,10 @@ void delete_p_p_reader(p_p_descriptor_t *descriptor)
 {
     stop_p_p(descriptor);
 
-    fclose(descriptor->ctx->file);
+    st_fclose(descriptor->ctx->file, descriptor->ctx->f_path);
     vQueueDelete(descriptor->ctx->data_queue);
     vQueueDelete(descriptor->ctx->empty_queue);
+    free(descriptor->ctx->f_path);
     free(descriptor->buf_a);
     free(descriptor->buf_b);
     free(descriptor->ctx);
@@ -105,7 +108,7 @@ void delete_p_p_reader(p_p_descriptor_t *descriptor)
 
 p_p_descriptor_t *init_p_p_reader(char *f_path)
 {
-    FILE *f = fopen(f_path, "rb");
+    FILE *f = st_fopen(f_path, "rb");
     uint8_t *buf_a = heap_caps_malloc(buf_len, MALLOC_CAP_SPIRAM);
     uint8_t *buf_b = heap_caps_malloc(buf_len, MALLOC_CAP_SPIRAM);
 
@@ -117,7 +120,7 @@ p_p_descriptor_t *init_p_p_reader(char *f_path)
         if (buf_b)
             free(buf_b);
         if (f)
-            fclose(f);
+            st_fclose(f, f_path);
         return NULL;
     }
 
@@ -132,6 +135,7 @@ p_p_descriptor_t *init_p_p_reader(char *f_path)
 
     reader_ctx_t *reader_ctx = malloc(sizeof(reader_ctx_t));
     reader_ctx->file = f;
+    reader_ctx->f_path = strdup(f_path);
     reader_ctx->data_queue = data_queue;
     reader_ctx->empty_queue = empty_queue;
 
@@ -142,7 +146,7 @@ p_p_descriptor_t *init_p_p_reader(char *f_path)
     descriptor->ctx = reader_ctx;
     atomic_init(&descriptor->ctx->worker_stopped, false);
     BaseType_t ret = xTaskCreatePinnedToCore(sd_reader_task, "sd_reader", 4 * 1024, reader_ctx, 6, NULL, 1);
-    
+
     if (ret != pdPASS)
     {
         atomic_store(&descriptor->ctx->worker_stopped, true);

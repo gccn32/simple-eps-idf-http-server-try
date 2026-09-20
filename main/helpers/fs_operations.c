@@ -16,11 +16,19 @@
 
 #define SD_MOUNT_POINT "/sdcard"
 
-SemaphoreHandle_t fs_operations_mutex;
+static SemaphoreHandle_t fs_io_mutex;
+static SemaphoreHandle_t open_f_mutex;
 
 static const char *TAG = "FS-OPERATIONS";
 static sdmmc_card_t *s_card = NULL;
 const char temp_dir_path[] = "/sdcard/temp";
+
+static int max_open_f_len = 5;
+static int open_f_len = 0;
+static char **open_f;
+
+static int f_read_timeout = 5000;
+static int f_open_timeout = 500;
 
 static void create_temp_folder()
 {
@@ -64,7 +72,7 @@ static esp_err_t mount_littlefs()
         ESP_LOGI(TAG, "Partition initialized successfully. Size: total: %d bytes, used: %d bytes", total, used);
         create_temp_folder();
     }
-
+    open_f = malloc(max_open_f_len * sizeof(char *));
     return ESP_OK;
 }
 
@@ -107,7 +115,8 @@ static esp_err_t mount_sd_card()
 
 esp_err_t mount_fs()
 {
-    fs_operations_mutex = xSemaphoreCreateMutex();
+    fs_io_mutex = xSemaphoreCreateMutex();
+    open_f_mutex = xSemaphoreCreateMutex();
     esp_err_t res_sd = mount_sd_card();
     esp_err_t res_littlefs = mount_littlefs();
     return res_sd == ESP_FAIL || res_littlefs == ESP_FAIL ? ESP_FAIL : ESP_OK;
@@ -115,23 +124,95 @@ esp_err_t mount_fs()
 
 esp_err_t st_fread(uint8_t *buf, int buf_len, FILE *f, int *bytes_read, int f_read_timeout)
 {
-    if (xSemaphoreTake(fs_operations_mutex, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
+    if (xSemaphoreTake(fs_io_mutex, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
     {
         *bytes_read = fread(buf, 1, buf_len, f);
-        xSemaphoreGive(fs_operations_mutex);
+        xSemaphoreGive(fs_io_mutex);
         return ESP_OK;
     }
     return ESP_FAIL;
 }
 esp_err_t st_write(uint8_t *buf, int buf_len, FILE *f, int f_read_timeout)
 {
-    if (xSemaphoreTake(fs_operations_mutex, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
+    if (xSemaphoreTake(fs_io_mutex, pdMS_TO_TICKS(f_read_timeout)) == pdTRUE)
     {
         fwrite(buf, 1, buf_len, f);
-        xSemaphoreGive(fs_operations_mutex);
+        xSemaphoreGive(fs_io_mutex);
         return ESP_OK;
     }
     return ESP_FAIL;
+}
+
+FILE *st_fopen(char *f_path, char *mode)
+{
+    if (xSemaphoreTake(open_f_mutex, pdMS_TO_TICKS(f_open_timeout)) == pdTRUE)
+    {
+        FILE *f = NULL;
+        if (max_open_f_len > open_f_len)
+        {
+            bool is_in_list = false;
+            for (char **ptr = open_f; ptr - open_f < open_f_len && !is_in_list; ptr++)
+                is_in_list = strcmp(*ptr, f_path) == 0;
+
+            if (!is_in_list)
+            {
+                open_f[open_f_len] = strdup(f_path);
+                open_f_len++;
+                f = fopen(f_path, mode);
+            }
+        }
+        xSemaphoreGive(open_f_mutex);
+        return f;
+    }
+    return NULL;
+}
+
+esp_err_t st_fclose(FILE *f, char *f_path)
+{
+
+    if (xSemaphoreTake(open_f_mutex, pdMS_TO_TICKS(f_open_timeout)) != pdTRUE)
+        return ESP_FAIL;
+    esp_err_t res = ESP_FAIL;
+    if (fclose(f) == 0)
+    {
+        bool move_value = false;
+        for (char **ptr = open_f; ptr - open_f < open_f_len - 1; ptr++)
+            if (strcmp(*ptr, f_path) == 0)
+            {
+                free(*ptr);
+                move_value = true;
+                *ptr = *(ptr + 1);
+            }
+            else if (move_value)
+                *ptr = *(ptr + 1);
+
+        open_f_len--;
+        if (!move_value) 
+            free(open_f[open_f_len]);
+
+        res = ESP_OK;
+    }
+    xSemaphoreGive(open_f_mutex);
+    return ESP_FAIL;
+}
+
+esp_err_t st_remove(char *f_path)
+{
+
+    if (xSemaphoreTake(open_f_mutex, pdMS_TO_TICKS(f_open_timeout)) != pdTRUE)
+        return ESP_FAIL;
+
+    esp_err_t res = ESP_FAIL;
+
+    bool is_in_list = false;
+    for (char **ptr = open_f; ptr - open_f < open_f_len && !is_in_list; ptr++)
+        is_in_list = strcmp(*ptr, f_path) == 0;
+
+    if (!is_in_list && remove(f_path) == 0)
+        res = ESP_OK;
+    xSemaphoreGive(open_f_mutex);
+
+    return res;
 }
 
 uint8_t *read_file_to_buffer(const char *filename, size_t *out_size)
