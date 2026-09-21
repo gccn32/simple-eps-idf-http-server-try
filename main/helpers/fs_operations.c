@@ -193,7 +193,7 @@ esp_err_t st_fclose(FILE *f, char *f_path)
         res = ESP_OK;
     }
     xSemaphoreGive(open_f_mutex);
-    return ESP_FAIL;
+    return res;
 }
 
 esp_err_t st_remove(char *f_path)

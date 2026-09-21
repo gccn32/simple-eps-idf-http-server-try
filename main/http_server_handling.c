@@ -12,14 +12,14 @@
 #include "helpers/touch_events_helper.h"
 #include "web-modules/main-page/main_page.h"
 #include "web-modules/temp-preview/temp_preview_page.h"
-#include "api/files/download/file_download.h"
 #include "web-modules/hello_world/hello_world.h"
 #include "api/performance_testing/performance_testing.h"
 #include "api/lib/api_lib.h"
 #include "api/static_files/static_files.h"
 #include "api/error_handlers/error_handlers.h"
-#include "api/files/upload/files_upload.h"
-#include "api/files/delete/file_delete.h"
+#include "api/file/download/file_download.h"
+#include "api/file/upload/files_upload.h"
+#include "api/file/delete/file_delete.h"
 
 httpd_handle_t server = NULL;
 static const char *TAG = "HTTP-SERVER";
